@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    input, select{
+      @apply text-white bg-black p-1 rounded-lg;
+    }
+  }
