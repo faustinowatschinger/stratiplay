@@ -22,7 +22,7 @@ const logger = winston.createLogger({
     ]
 });
 
-const actualizarEstadoTarea = async (uid, planId, diaIndex, tareaIndex, nuevoEstado) => {
+const actualizarEstadoTarea = async (uid, planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad) => {
     try {
         const userRef = db.collection('usuarios').doc(uid);
         const planRef = userRef.collection('planesEstudio').doc(planId);
@@ -33,13 +33,18 @@ const actualizarEstadoTarea = async (uid, planId, diaIndex, tareaIndex, nuevoEst
         }
 
         const planData = planDoc.data();
-        planData.planEstudio[diaIndex].tareas[tareaIndex].estado = nuevoEstado;
+        if (nuevoEstado) {
+            planData.planEstudio[diaIndex].tareas[tareaIndex].estado = nuevoEstado;
+        }
+        if (nuevaPrioridad) {
+            planData.planEstudio[diaIndex].tareas[tareaIndex].prioridad = nuevaPrioridad;
+        }
 
         await planRef.update(planData);
-        logger.info('Estado de la tarea actualizado exitosamente');
+        logger.info('Estado y/o prioridad de la tarea actualizados exitosamente');
     } catch (error) {
-        logger.error('Error al actualizar el estado de la tarea:', error);
-        throw new Error('Error al actualizar el estado de la tarea');
+        logger.error('Error al actualizar el estado y/o prioridad de la tarea:', error);
+        throw new Error('Error al actualizar el estado y/o prioridad de la tarea');
     }
 };
 
@@ -64,6 +69,18 @@ const guardarPlanEstudio = async (uid, planEstudio) => {
         throw new Error('Error al guardar el plan de estudio');
     }
 };
+const eliminarPlanEstudio = async (uid, planId) => {
+    try {
+        const userRef = db.collection('usuarios').doc(uid);
+        const planRef = userRef.collection('planesEstudio').doc(planId);
+        await planRef.delete();
+        logger.info('Plan de estudio eliminado exitosamente');
+    } catch (error) {
+        logger.error('Error al eliminar el plan de estudio:', error);
+        throw new Error('Error al eliminar el plan de estudio');
+    }
+};
+
 
 router.post('/custom-prompt', async (req, res) => {
     const { informacionTema } = req.body;
@@ -95,10 +112,10 @@ router.post('/custom-prompt', async (req, res) => {
         let promptContent = `uid del usuario: ${uid}
         Campo a estudiar: ${informacionTema.campo}, 
         SubCampo a estudiar: ${informacionTema.subCampo || 'No especificado'},
-        Nivel de experiencia: ${informacionTema.nivelExperiencia || 'No especificado'},
-        Experiencia: ${informacionTema.descripcionExperiencia || 'No especificado'}, 
-        Tiempo semanal: ${informacionTema.nivelIntensidad},
+        Nivel intensidad: ${informacionTema.nivelIntensidad},
         Días de estudio: ${informacionTema.diasEstudio?.length > 0 ? informacionTema.diasEstudio.join(', ') : 'No especificado'},
+        Tareas completadas: ${informacionTema.tareasCompletadas.map(tarea => tarea.titulo).join(', ')},
+        Objetivos completados: ${informacionTema.objetivosCompletados.map(objetivo => objetivo.titulo).join(', ')},
         Necesito un plan de estudio detallado, incluyendo objetivos claros, un plan semanal con temas específicos y tareas diarias, todos los días seleccionados tienen que tener sus respectivas tareas sin excepción. Asegúrate de que los campos 'planEstudio', 'objetivos' contengan información detallada.`;
 
         // Agregar lógica condicional para modificar el promptContent
@@ -200,7 +217,8 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                                                     properties: {
                                                         titulo: { type: "string", description: "Título de la tarea." },
                                                         contenido: { type: "string", description: "Tiene que ser una explicacion detallada y extensa donde explique que es lo que tiene que estudiar o hacer y donde puede hacerlo(ya sea en plataformas, blogs, videos, etc)."},
-                                                        estado: { type: "string", enum: ["esperando", "completado"], description: "Estado de la tarea." }
+                                                        estado: { type: "string", enum: ["esperando", "enProceso", "finalizado"], description: "Estado de la tarea." },
+                                                        prioridad: { type: "string", enum: ["baja", "media", "alta"], description: "Prioridad de la tarea." }
                                                     }
                                                 }
                                             }
@@ -242,12 +260,10 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
             responseData = response.data.choices[0].message.function_call.arguments;
             logger.info('Response data:', responseData);
 
-            // Verificar si responseData es un string JSON válido
             if (typeof responseData === 'string') {
                 try {
                     let parsedResponse = JSON.parse(responseData);
 
-                    // Verifica que parsedResponse sea un objeto plano
                     if (typeof parsedResponse !== 'object' || parsedResponse === null || Array.isArray(parsedResponse)) {
                         throw new Error('La respuesta no es un objeto plano');
                     }
@@ -295,7 +311,7 @@ router.delete('/eliminar-plan/:planId', async (req, res) => {
 });
 
 router.post('/actualizar-estado-tarea', async (req, res) => {
-    const { planId, diaIndex, tareaIndex, nuevoEstado } = req.body;
+    const { planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad } = req.body;
 
     let uid;
     try {
@@ -316,11 +332,11 @@ router.post('/actualizar-estado-tarea', async (req, res) => {
     }
 
     try {
-        await actualizarEstadoTarea(uid, planId, diaIndex, tareaIndex, nuevoEstado);
-        return res.status(200).json({ message: 'Estado de la tarea actualizado correctamente.' });
+        await actualizarEstadoTarea(uid, planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad);
+        return res.status(200).json({ message: 'Estado y/o prioridad de la tarea actualizados correctamente.' });
     } catch (error) {
-        logger.error('Error al actualizar el estado de la tarea:', error.message);
-        return res.status(500).json({ error: 'Error al actualizar el estado de la tarea', details: error.message });
+        logger.error('Error al actualizar el estado y/o prioridad de la tarea:', error.message);
+        return res.status(500).json({ error: 'Error al actualizar el estado y/o prioridad de la tarea', details: error.message });
     }
 });
 

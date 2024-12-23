@@ -1,4 +1,4 @@
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
 import { useState, useEffect } from 'react';
 import { getAuth } from "firebase/auth";
@@ -6,6 +6,7 @@ import axios from 'axios';
 
 function InformacionCampo() {
     const location = useLocation();
+    const navigate = useNavigate();
     const { planId } = location.state || {};
     const [planEstudio, setPlanEstudio] = useState(null);
     const [tareasFinalizadas, setTareasFinalizadas] = useState([]);
@@ -13,6 +14,7 @@ function InformacionCampo() {
     const [tareasConEstado, setTareasConEstado] = useState([]);
     const [objetivosConEstado, setObjetivosConEstado] = useState([]);
     const [estadoTabla, setEstadoTabla] = useState("todas");
+    const [prioridadTabla, setPrioridadTabla] = useState("todas");
     const [estadoTablaObjetivo, setEstadoTablaObjetivo] = useState("todas");
     const [porcentajeSemana, setProcentajeSemana] = useState();
 
@@ -64,6 +66,65 @@ function InformacionCampo() {
         fetchPlanEstudio();
     }, [planId]);
 
+    const handlePrograsarPlan = async () => {
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) {
+                throw new Error("No estás autenticado. Por favor, inicia sesión.");
+            }
+    
+            const token = await user.getIdToken();
+    
+            const tareasCompletadas = tareasConEstado.flatMap(dia =>
+                dia.tareas.filter(tarea => tarea.estado === "finalizado")
+            );
+            const objetivosCompletados = objetivosConEstado.filter(objetivo => objetivo.estado === "finalizado");
+    
+            const informacionTema = {
+                campo: planEstudio.campoEstudio,
+                nivelIntensidad: planEstudio.nivelIntensidad,
+                diasEstudio: planEstudio.diasEstudio,
+                tareasCompletadas,
+                objetivosCompletados,
+                ...(planEstudio.campoEstudio === "Ajedrez" && {
+                    elo: planEstudio.elo,
+                    experienciaAjedrez: planEstudio.experienciaAjedrez,
+                    pgnFile: planEstudio.pgnFile,
+                }),
+                ...(planEstudio.campoEstudio === "Poker Texas Holdem" && {
+                    tipoPoker: planEstudio.tipoPoker,
+                    pokerHands: planEstudio.pokerHands,
+                    limiteMesa: planEstudio.limiteMesa,
+                    softwaresPoker: planEstudio.softwaresPoker,
+                }),
+            };
+    
+            const response = await axios.post(
+                'http://localhost:5000/api/chat/custom-prompt',
+                { informacionTema },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+    
+            const nuevoPlanEstudio = response.data;
+    
+            // Eliminar el plan actual
+            await axios.delete(`http://localhost:5000/api/chat/eliminar-plan/${planId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+    
+            window.location.href = "/catalogo-campos";
+        } catch (error) {
+            console.error('Error al generar el nuevo plan de estudio:', error);
+        }
+    };
+
     useEffect(() => {
         const tareasFinalizadas = tareasConEstado.flatMap(dia =>
             dia.tareas.filter(tarea => tarea.estado === "finalizado")
@@ -89,9 +150,9 @@ function InformacionCampo() {
             if (!user) {
                 throw new Error("No estás autenticado. Por favor, inicia sesión.");
             }
-
+    
             const token = await user.getIdToken();
-
+    
             await axios.post(
                 'http://localhost:5000/api/chat/actualizar-estado-tarea',
                 { planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad },
@@ -101,7 +162,7 @@ function InformacionCampo() {
                     },
                 }
             );
-
+    
             console.log('Estado y/o prioridad de la tarea actualizados correctamente en la base de datos');
         } catch (error) {
             console.error('Error al actualizar el estado y/o prioridad en la base de datos:', error);
@@ -116,13 +177,13 @@ function InformacionCampo() {
                 newState[diaIndex].tareas[tareaIndex].estado = nuevoEstado;
                 return newState;
             });
-
+    
             await actualizarEstadoTareaEnBD(planId, diaIndex, tareaIndex, nuevoEstado, null);
         } catch (error) {
             console.error('Error al actualizar el estado de la tarea:', error);
         }
     };
-
+    
     const handlePrioridadTareaChange = async (diaIndex, tareaIndex, nuevaPrioridad) => {
         try {
             setTareasConEstado((prevState) => {
@@ -130,7 +191,7 @@ function InformacionCampo() {
                 newState[diaIndex].tareas[tareaIndex].prioridad = nuevaPrioridad;
                 return newState;
             });
-
+    
             await actualizarEstadoTareaEnBD(planId, diaIndex, tareaIndex, null, nuevaPrioridad);
         } catch (error) {
             console.error('Error al actualizar la prioridad de la tarea:', error);
@@ -139,6 +200,10 @@ function InformacionCampo() {
 
     const handleEstadoTablaChange = (e) => {
         setEstadoTabla(e.target.value);
+    };
+
+    const handlePrioridadTablaChange = (e) => {
+        setPrioridadTabla(e.target.value);
     };
   
     const handleEstadoObjetivoChange = (objetivoIndex, nuevoEstado) => {
@@ -149,10 +214,6 @@ function InformacionCampo() {
 
     const handleEstadoTablaObjetivoChange = (e) => {
         setEstadoTablaObjetivo(e.target.value);
-    };
-
-    const handlePrograsarPlan = () => {
-        alert("progresar")
     };
 
     const totalTareas = planEstudio.planEstudio.reduce((total, dia) => total + dia.tareas.length, 0);
@@ -234,7 +295,7 @@ function InformacionCampo() {
                     <div>
                         <h4>Prioridad</h4>
                         <select
-                            onChange={handleEstadoTablaChange}
+                            onChange={handlePrioridadTablaChange}
                             className="style-input w-max"
                             name="prioridad"
                             id="prioridad"
@@ -260,7 +321,7 @@ function InformacionCampo() {
                     <tbody>
                         {tareasConEstado.map((diaEstudio, diaIndex) =>
                             diaEstudio.tareas
-                                .filter((tarea) => estadoTabla === "todas" || tarea.estado === estadoTabla)
+                                .filter((tarea) => (estadoTabla === "todas" || tarea.estado === estadoTabla) && (prioridadTabla === "todas" || tarea.prioridad === prioridadTabla))
                                 .map((tarea, tareaIndex) => (
                                     <tr className="border-t border-b border-black" key={`${diaIndex}-${tareaIndex}`}>
                                         <td className="px-4 py-2 border-t border-b border-black">{diaEstudio.dia}</td>
