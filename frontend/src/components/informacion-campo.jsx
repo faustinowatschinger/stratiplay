@@ -1,147 +1,183 @@
 import { useLocation } from 'react-router-dom';
 import { CircularProgressbar, buildStyles } from 'react-circular-progressbar';
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getAuth } from "firebase/auth";
+import axios from 'axios';
 
 function InformacionCampo() {
     const location = useLocation();
-    const { planEstudio } = location.state || {};
+    const { planId } = location.state || {};
+    const [planEstudio, setPlanEstudio] = useState(null);
     const [tareasFinalizadas, setTareasFinalizadas] = useState([]);
     const [objetivosFinalizados, setObjetivosFinalizados] = useState([]);
     const [tareasConEstado, setTareasConEstado] = useState([]);
     const [objetivosConEstado, setObjetivosConEstado] = useState([]);
-    const [estadoTabla, setEstadoTabla] = useState("esperando");
-    const [estadoTablaObjetivo, setEstadoTablaObjetivo] = useState("esperando");
+    const [estadoTabla, setEstadoTabla] = useState("todas");
+    const [estadoTablaObjetivo, setEstadoTablaObjetivo] = useState("todas");
     const [porcentajeSemana, setProcentajeSemana] = useState();
 
-    // Inicializar tareas y objetivos con un estado predeterminado
     useEffect(() => {
-        if (planEstudio && Array.isArray(planEstudio.planEstudio) && Array.isArray(planEstudio.objetivos)) {
-            const tareasInicializadas = planEstudio.planEstudio.map((dia) => ({
-                ...dia,
-                tareas: dia.tareas?.map((tarea) => ({
-                    ...tarea,
-                    estado: tarea.estado || "esperando",
-                })) || [],
-            }));
-            setTareasConEstado(tareasInicializadas);
-    
-            const objetivosInicializados = planEstudio.objetivos.map((objetivo) => ({
-                ...objetivo,
-                estado: objetivo.estado || "esperando",
-            }));
-            setObjetivosConEstado(objetivosInicializados);
+        if (!planId) {
+            console.error('planId no está definido');
+            return;
         }
-    }, [planEstudio]);
-    
 
-    // Actualizar tareas finalizadas dinámicamente
+        const fetchPlanEstudio = async () => {
+            try {
+                const auth = getAuth();
+                const user = auth.currentUser;
+                if (!user) {
+                    throw new Error("No estás autenticado. Por favor, inicia sesión.");
+                }
+
+                const token = await user.getIdToken();
+
+                const response = await axios.get(`http://localhost:5000/api/chat/obtener-plan/${planId}`, {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+
+                const planData = response.data;
+                setPlanEstudio(planData);
+
+                const tareasInicializadas = planData.planEstudio.map((dia) => ({
+                    ...dia,
+                    tareas: dia.tareas?.map((tarea) => ({
+                        ...tarea,
+                        estado: tarea.estado || "esperando",
+                        prioridad: tarea.prioridad || "media",
+                    })) || [],
+                }));
+                setTareasConEstado(tareasInicializadas);
+
+                const objetivosInicializados = planData.objetivos.map((objetivo) => ({
+                    ...objetivo,
+                    estado: objetivo.estado || "esperando",
+                }));
+                setObjetivosConEstado(objetivosInicializados);
+            } catch (error) {
+                console.error('Error al obtener el plan de estudio:', error);
+            }
+        };
+
+        fetchPlanEstudio();
+    }, [planId]);
+
     useEffect(() => {
         const tareasFinalizadas = tareasConEstado.flatMap(dia =>
             dia.tareas.filter(tarea => tarea.estado === "finalizado")
         );
         setTareasFinalizadas(tareasFinalizadas);
         const objetivosFinalizados = objetivosConEstado.filter(objetivo => objetivo.estado === "finalizado");
-        setObjetivosFinalizados(objetivosFinalizados)
+        setObjetivosFinalizados(objetivosFinalizados);
 
         setProcentajeSemana(
             ((objetivosFinalizados.length + tareasFinalizadas.length) / 
             (objetivosConEstado.length + tareasConEstado.flatMap(dia => dia.tareas).length)) * 100
         );
-        
-
     }, [tareasConEstado, objetivosConEstado]);
 
     if (!planEstudio) {
         return <p>No se generó un plan de estudio.</p>;
     }
 
-    const handleEstadoTareaChange = async (diaIndex, tareaIndex, nuevoEstado) => {
-      try {
-          const nuevasTareas = [...tareasConEstado];
-          nuevasTareas[diaIndex].tareas[tareaIndex].estado = nuevoEstado;
-          setTareasConEstado(nuevasTareas);
-  
-          // Enviar actualización al backend
-          const tareaId = planEstudio.planEstudio[diaIndex].tareas[tareaIndex].id; // Suponiendo que cada tarea tiene un `id` único
-          const planId = planEstudio.planId; // ID del plan de estudio
-  
-          await actualizarEstadoTareaEnBD(planId, tareaId, nuevoEstado);
-      } catch (error) {
-          console.error('Error al cambiar el estado de la tarea:', error.message);
-      }
-  };
-  
-  
-  
+    const actualizarEstadoTareaEnBD = async (planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad) => {
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) {
+                throw new Error("No estás autenticado. Por favor, inicia sesión.");
+            }
 
+            const token = await user.getIdToken();
+
+            await axios.post(
+                'http://localhost:5000/api/chat/actualizar-estado-tarea',
+                { planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+
+            console.log('Estado y/o prioridad de la tarea actualizados correctamente en la base de datos');
+        } catch (error) {
+            console.error('Error al actualizar el estado y/o prioridad en la base de datos:', error);
+            throw new Error('Error al actualizar el estado y/o prioridad en la base de datos');
+        }
+    };
+
+    const handleEstadoTareaChange = async (diaIndex, tareaIndex, nuevoEstado) => {
+        try {
+            setTareasConEstado((prevState) => {
+                const newState = [...prevState];
+                newState[diaIndex].tareas[tareaIndex].estado = nuevoEstado;
+                return newState;
+            });
+
+            await actualizarEstadoTareaEnBD(planId, diaIndex, tareaIndex, nuevoEstado, null);
+        } catch (error) {
+            console.error('Error al actualizar el estado de la tarea:', error);
+        }
+    };
+
+    const handlePrioridadTareaChange = async (diaIndex, tareaIndex, nuevaPrioridad) => {
+        try {
+            setTareasConEstado((prevState) => {
+                const newState = [...prevState];
+                newState[diaIndex].tareas[tareaIndex].prioridad = nuevaPrioridad;
+                return newState;
+            });
+
+            await actualizarEstadoTareaEnBD(planId, diaIndex, tareaIndex, null, nuevaPrioridad);
+        } catch (error) {
+            console.error('Error al actualizar la prioridad de la tarea:', error);
+        }
+    };
+
+    const handleEstadoTablaChange = (e) => {
+        setEstadoTabla(e.target.value);
+    };
+  
     const handleEstadoObjetivoChange = (objetivoIndex, nuevoEstado) => {
         const nuevosObjetivos = [...objetivosConEstado];
         nuevosObjetivos[objetivoIndex].estado = nuevoEstado;
         setObjetivosConEstado(nuevosObjetivos);
     };
 
-    const handleEstadoTablaChange = (e) => {
-        setEstadoTabla(e.target.value);
-    };
     const handleEstadoTablaObjetivoChange = (e) => {
         setEstadoTablaObjetivo(e.target.value);
     };
 
     const handlePrograsarPlan = () => {
         alert("progresar")
-    }
+    };
 
-    // Calcular el porcentaje de tareas completadas
     const totalTareas = planEstudio.planEstudio.reduce((total, dia) => total + dia.tareas.length, 0);
-
-    const actualizarEstadoTareaEnBD = async (planId, tareaId, nuevoEstado) => {
-      try {
-          const response = await fetch('http://localhost:5000/api/chat/actualizar-estado-tarea', {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${getAuth().currentUser?.getIdToken()}`, // Token del usuario
-              },
-              body: JSON.stringify({ planId, tareaId, nuevoEstado }),
-          });
-  
-          if (!response.ok) {
-              throw new Error('Error al actualizar el estado en la base de datos');
-          }
-  
-          console.log('Estado actualizado correctamente en la base de datos.');
-      } catch (error) {
-          console.error('Error al actualizar el estado en la base de datos:', error.message);
-      }
-  };
-  
-    
-    
-  
 
     return (
         <article className='flex flex-col items-center justify-center gap-60 text-white'>
             <section className='flex flex-col items-center justify-center'>
-            <h1 className='text-4xl'>{planEstudio.campoEstudio}</h1>
-            <p>{planEstudio.planEstudio.descripcion}</p>
-            <button onClick={porcentajeSemana === 100 ? handlePrograsarPlan : null} className='bg-black p-1 rounded-lg'>Avanzar</button>
+                <h1 className='text-4xl'>{planEstudio.campoEstudio}</h1>
+                <img className="w-36" src={planEstudio.campoEstudio === "Poker Texas Holdem" ? "/imagenes/cartas-de-poquer.png" : planEstudio.campoEstudio === "Ajedrez" ? "/imagenes/ajedrez.png" : null} alt="" />
+                <button onClick={porcentajeSemana === 100 ? handlePrograsarPlan : null} className='bg-black p-1 rounded-lg'>Avanzar</button>
             </section>
             <section className='flex flex-row items-center justify-center gap-10'>
                 <div className='flex flex-col items-center justify-center'>
                     <p className='mb-5 text-xl'>Semana terminada</p>
                     <div className='w-32 h-32'>
-                    <CircularProgressbar
-    value={porcentajeSemana || 0} // Usa 0 si porcentajeSemana es undefined
-    text={`${(porcentajeSemana || 0).toFixed(2)}%`} // Asegúrate de evitar errores con undefined
-    styles={buildStyles({
-        textColor: "white",
-        pathColor: "black",
-        trailColor: "#D6D6D6",
-        textSize: "16px",
-    })}
-/>
-
+                        <CircularProgressbar
+                            value={porcentajeSemana || 0}
+                            text={`${(porcentajeSemana || 0).toFixed(2)}%`}
+                            styles={buildStyles({
+                                textColor: "white",
+                                pathColor: "black",
+                                trailColor: "#D6D6D6",
+                                textSize: "16px",
+                            })}
+                        />
                     </div>
                 </div>
                 <div className='flex flex-col items-center justify-center'>
@@ -154,9 +190,9 @@ function InformacionCampo() {
                                 textColor: "white",
                                 pathColor: "black",
                                 trailColor: "#D6D6D6",
-                                textSize: "18px",  // Ajuste más preciso del tamaño del texto
-                                textAnchor: "middle",  // Asegura que el texto se centre horizontalmente
-                                dominantBaseline: "middle",  // Asegura que el texto se centre verticalmente
+                                textSize: "18px",
+                                textAnchor: "middle",
+                                dominantBaseline: "middle",
                             })}
                         />
                     </div>
@@ -171,155 +207,139 @@ function InformacionCampo() {
                                 textColor: "white",
                                 pathColor: "black",
                                 trailColor: "#D6D6D6",
-                                textSize: "16px",  // Ajustar el tamaño del texto
-                                textAlignment: "middle",  // Asegura que el texto esté centrado
+                                textSize: "16px",
+                                textAlignment: "middle",
                             })}
                         />
                     </div>
                 </div>
             </section>
-            <section className=' flex flex-col items-center justify-center'>
-                <h3 className='text-xl mb-5'>Temas a estudiar</h3>
-                <table className="border-spacing border-spacing-x-4 border-collapse">
+            <section className="flex flex-col items-center justify-center">
+                <h3 className="text-2xl">Tareas</h3>
+                <div className='flex flex-row items-center justify-center gap-10 mt-10'>
+                    <div className='flex flex-col items-center justify-center '>
+                        <h4>Estado</h4>
+                        <select
+                            onChange={handleEstadoTablaChange}
+                            className="style-input w-max"
+                            name="estado"
+                            id="estado"
+                        >
+                            <option value="todas">Todas</option>
+                            <option value="esperando">Esperando</option>
+                            <option value="enProgreso">En progreso</option>
+                            <option value="finalizado">Finalizado</option>
+                        </select>
+                    </div>
+                    <div>
+                        <h4>Prioridad</h4>
+                        <select
+                            onChange={handleEstadoTablaChange}
+                            className="style-input w-max"
+                            name="prioridad"
+                            id="prioridad"
+                        >
+                            <option value="todas">Todas</option>
+                            <option value="baja">Baja</option>
+                            <option value="media">Media</option>
+                            <option value="alta">Alta</option>
+                        </select>
+                    </div>
+                </div>
+
+                <table className="border-separate border-spacing-4 w-full">
                     <thead className="text-lg">
                         <tr className="border-t border-black">
-                            <th className="px-4 py-2">Tema</th>
-                            <th className="px-4 py-2">Contenido</th>
+                            <th className="px-4 py-2 border-b border-black">Día</th>
+                            <th className="px-4 py-2 border-b border-black">Titulo</th>
+                            <th className="px-4 py-2 border-b border-black">Descripción</th>
+                            <th className="px-4 py-2 border-b border-black">Estado</th>
+                            <th className="px-4 py-2 border-b border-black">Prioridad</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {planEstudio.planEstudio.map((diaEstudio, index) => (
-                            <React.Fragment key={index}>
-                                {/* Encabezado para cada día */}
-                                <tr className="border-b border-black">
-                                    <td  colSpan="3" className="px-4 py-2 font-bold text-center">
-                                        <h4>{diaEstudio.dia}</h4>
-                                        <p>{diaEstudio.descripcion}</p>
-                                    </td>
-                                </tr>
-                                {diaEstudio.temas?.map((tema, temaIndex) => (
-    <tr key={`${index}-${temaIndex}`} className="border-b border-t border-black">
-        <td className="px-4 py-2">{tema}</td>
-        <td className="px-4 py-2">
-            {diaEstudio.contenido?.[temaIndex] ? (
-                <p target="_blank" rel="noopener noreferrer">
-                    {diaEstudio.contenido[temaIndex]}
-                </p>
-            ) : (
-                <span>Sin contenido</span>
-            )}
-        </td>
-    </tr>
-))}
-
-                            </React.Fragment>
-                        ))}
+                        {tareasConEstado.map((diaEstudio, diaIndex) =>
+                            diaEstudio.tareas
+                                .filter((tarea) => estadoTabla === "todas" || tarea.estado === estadoTabla)
+                                .map((tarea, tareaIndex) => (
+                                    <tr className="border-t border-b border-black" key={`${diaIndex}-${tareaIndex}`}>
+                                        <td className="px-4 py-2 border-t border-b border-black">{diaEstudio.dia}</td>
+                                        <td className="px-4 py-2 border-t border-b border-black">{tarea.titulo}</td>
+                                        <td className="px-4 py-2 border-t border-b border-black">{tarea.contenido}</td>
+                                        <td className="px-4 py-2 border-t border-b border-black">
+                                            <select
+                                                value={tarea.estado}
+                                                onChange={(e) => handleEstadoTareaChange(diaIndex, tareaIndex, e.target.value)}
+                                            >
+                                                <option value="esperando">Esperando</option>
+                                                <option value="enProgreso">En progreso</option>
+                                                <option value="finalizado">Finalizado</option>
+                                            </select>
+                                        </td>
+                                        <td className="px-4 py-2 border-t border-b border-black">
+                                            <select
+                                                value={tarea.prioridad}
+                                                onChange={(e) => handlePrioridadTareaChange(diaIndex, tareaIndex, e.target.value)}
+                                            >
+                                                <option value="baja">Baja</option>
+                                                <option value="media">Media</option>
+                                                <option value="alta">Alta</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                ))
+                        )}
                     </tbody>
                 </table>
             </section>
-            {/* Renderizando las tareas */}
             <section className="flex flex-col items-center justify-center">
-  <h3 className="text-xl">Tareas</h3>
-  <select
-    onChange={handleEstadoTablaChange}
-    className="style-input w-max"
-    name="estado"
-    id="estado"
-  >
-    <option value="todas">Todas</option>
-    <option value="esperando">Esperando</option>
-    <option value="enProgreso">En progreso</option>
-    <option value="finalizado">Finalizado</option>
-  </select>
-
-  <table className="border-separate border-spacing-4 w-full">
-    <thead className="text-lg">
-      <tr className="border-t border-black">
-        <th className="px-4 py-2 border-b border-black">Día</th>
-        <th className="px-4 py-2 border-b border-black">Tarea</th>
-        <th className="px-4 py-2 border-b border-black">Descripción</th>
-        <th className="px-4 py-2 border-b border-black">Estado</th>
-      </tr>
-    </thead>
-    <tbody>
-      {tareasConEstado.map((diaEstudio, diaIndex) =>
-        diaEstudio.tareas
-          .filter((tarea) => estadoTabla === "todas" || tarea.estado === estadoTabla)
-          .map((tarea, tareaIndex) => (
-            <tr className="border-t border-b border-black" key={`${diaIndex}-${tareaIndex}`}>
-              <td className="px-4 py-2 border-t border-b border-black">{diaEstudio.dia}</td>
-              <td className="px-4 py-2 border-t border-b border-black">{tarea.titulo}</td>
-              <td className="px-4 py-2 border-t border-b border-black">{tarea.descripcion}</td>
-              <td className="px-4 py-2 border-t border-b border-black">
+                <h3 className="text-2xl">Objetivos</h3>
                 <select
-                  value={tarea.estado}
-                  className="style-input"
-                  onChange={(e) =>
-                    handleEstadoTareaChange(diaIndex, tareaIndex, e.target.value)
-                  }
+                    onChange={handleEstadoTablaObjetivoChange}
+                    className="style-input w-max"
+                    name="estado"
+                    id="estado"
                 >
-                  <option value="esperando">Esperando</option>
-                  <option value="enProgreso">En progreso</option>
-                  <option value="finalizado">Finalizado</option>
+                    <option value="esperando">Esperando</option>
+                    <option value="enProgreso">En progreso</option>
+                    <option value="finalizado">Finalizado</option>
+                    <option value="todas">Todas</option>
                 </select>
-              </td>
-            </tr>
-          ))
-      )}
-    </tbody>
-  </table>
-</section>
 
-            {/* Renderizando los objetivos */}
-            <section className="flex flex-col items-center justify-center">
-  <h3 className="text-xl">Objetivos</h3>
-  <select
-    onChange={handleEstadoTablaObjetivoChange}
-    className="style-input w-max"
-    name="estado"
-    id="estado"
-  >
-    <option value="todas">Todas</option>
-    <option value="esperando">Esperando</option>
-    <option value="enProgreso">En progreso</option>
-    <option value="finalizado">Finalizado</option>
-  </select>
-
-  <table className="table-auto border-separate border-spacing-4 w-full">
-    <thead className="text-lg">
-      <tr className="border-t border-b border-black">
-        <th className="px-4 py-2 border-b border-black">Nombre</th>
-        <th className="px-4 py-2 border-b border-black">Descripción</th>
-        <th className="px-4 py-2 border-b border-black">Estado</th>
-      </tr>
-    </thead>
-    <tbody>
-      {objetivosConEstado
-        .filter(
-          (objetivo) =>
-            estadoTablaObjetivo === "todas" || objetivo.estado === estadoTablaObjetivo
-        )
-        .map((objetivo, objetivoIndex) => (
-          <tr className="border-t border-b border-black" key={objetivo.id || objetivoIndex}>
-            <td className="px-4 py-2 border-t border-b border-black">{objetivo.titulo}</td>
-            <td className="px-4 py-2 border-t border-b border-black">{objetivo.descripcion}</td>
-            <td className="px-4 py-2 border-t border-b border-black">
-              <select
-                value={objetivo.estado}
-                className="style-input"
-                onChange={(e) => handleEstadoObjetivoChange(objetivoIndex, e.target.value)}
-              >
-                <option value="esperando">Esperando</option>
-                <option value="enProgreso">En progreso</option>
-                <option value="finalizado">Finalizado</option>
-              </select>
-            </td>
-          </tr>
-        ))}
-    </tbody>
-  </table>
-</section>
-
+                <table className="table-auto border-separate border-spacing-4 w-full">
+                    <thead className="text-lg">
+                        <tr className="border-t border-b border-black">
+                            <th className="px-4 py-2 border-b border-black">Titulo</th>
+                            <th className="px-4 py-2 border-b border-black">Descripción</th>
+                            <th className="px-4 py-2 border-b border-black">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {objetivosConEstado
+                            .filter(
+                                (objetivo) =>
+                                    estadoTablaObjetivo === "todas" || objetivo.estado === estadoTablaObjetivo
+                            )
+                            .map((objetivo, objetivoIndex) => (
+                                <tr className="border-t border-b border-black" key={objetivo.id || objetivoIndex}>
+                                    <td className="px-4 py-2 border-t border-b border-black">{objetivo.titulo}</td>
+                                    <td className="px-4 py-2 border-t border-b border-black">{objetivo.descripcion}</td>
+                                    <td className="px-4 py-2 border-t border-b border-black">
+                                        <select
+                                            value={objetivo.estado}
+                                            className="style-input"
+                                            onChange={(e) => handleEstadoObjetivoChange(objetivoIndex, e.target.value)}
+                                        >
+                                            <option value="esperando">Esperando</option>
+                                            <option value="enProgreso">En progreso</option>
+                                            <option value="finalizado">Finalizado</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                            ))}
+                    </tbody>
+                </table>
+            </section>
         </article>
     );
 }

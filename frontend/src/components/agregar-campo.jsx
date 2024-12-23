@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { auth } from './firebase';
 
 function AgregarCampo() {
 
+    const navigate = useNavigate();
+
     const [informacionTema, setInformacionTema] = useState({
         campo: "",
-        nivelExperiencia: "sinExperiencia",
-        descripcionExperiencia: "",
         nivelIntensidad: "",
         diasEstudio: [],
-        subCampo: "", // Nueva propiedad para área de programación
+        elo: "",
+        experienciaAjedrez: "Sin experiencia",
+        tipoPoker: "",
+        estiloJuego: "",
+        pgnFile: null, // Cambiado a un solo archivo
+        pokerHands: Array(10).fill(null),
+        softwaresPoker: "No",
+        limiteMesa: "",
     });
 
-    const [planEstudio, setPlanEstudio] = useState(""); // Estado para el plan de estudio
-    const [loading, setLoading] = useState(false); // Estado para el indicador de carga
+    const [planEstudio, setPlanEstudio] = useState("");
+    const [loading, setLoading] = useState(false);
 
     const handleInputChange = (e) => {
         const { id, value } = e.target;
@@ -34,44 +42,62 @@ function AgregarCampo() {
         }));
     };
 
+    const handleFileChange = (e, fileType = 'pgnFile') => {
+        const file = e.target.files[0];
+        setInformacionTema((prevState) => ({
+            ...prevState,
+            [fileType]: file,
+        }));
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
-    
+
         try {
             const user = auth.currentUser;
-    
+
             if (!user) {
                 throw new Error("No estás autenticado. Por favor, inicia sesión.");
             }
-    
-            const token = await user.getIdToken(); // Obtén el token de autenticación
 
-            // Asegúrate de que los campos requeridos tengan valores predeterminados
-            const datosEnviar = {
-                ...informacionTema,
-                nivelIntensidad: informacionTema.nivelIntensidad || "bajo",
-                diasEstudio: informacionTema.diasEstudio.length > 0 ? informacionTema.diasEstudio : ["lunes"],
-                subCampo: informacionTema.subCampo || "No especificado",
-                descripcionExperiencia: informacionTema.descripcionExperiencia || "No especificado",
-                tiempoSemana: informacionTema.nivelIntensidad || "bajo", // Agrega el campo tiempoSemana
-            };
+            const token = await user.getIdToken();
 
-            // Log the data being sent
+            // Validar que los campos obligatorios no estén vacíos
+            if (!informacionTema.campo || !informacionTema.nivelIntensidad) {
+                throw new Error("Campos obligatorios faltantes: campo y nivelIntensidad.");
+            }
+
+            let datosEnviar = { ...informacionTema };
+            if (informacionTema.campo === "Ajedrez") {
+                datosEnviar = {
+                    ...datosEnviar,
+                    elo: informacionTema.elo,
+                    pgnFile: informacionTema.pgnFile,
+                };
+            } else if (informacionTema.campo === "Poker Texas Holdem") {
+                datosEnviar = {
+                    ...datosEnviar,
+                    tipoPoker: informacionTema.tipoPoker,
+                    pokerHands: informacionTema.pokerHands.filter(file => file !== null),
+                    limiteMesa: informacionTema.limiteMesa,
+                };
+            }
+
             console.log('Datos enviados:', { informacionTema: datosEnviar });
-    
+
             const response = await axios.post(
                 'http://localhost:5000/api/chat/custom-prompt',
                 { informacionTema: datosEnviar },
                 {
                     headers: {
-                        Authorization: `Bearer ${token}`, // Agrega el token en el encabezado
+                        Authorization: `Bearer ${token}`,
                     },
                 }
             );
-    
+
             setPlanEstudio(response.data);
-            window.location.href = "/catalogo-campos"; // Redirige y recarga la página
+            window.location.href = "/catalogo-campos";
         } catch (error) {
             console.error('Error al generar el plan de estudio:', error);
             setPlanEstudio("Ocurrió un error al generar tu plan de estudio. Por favor, intenta nuevamente.");
@@ -79,7 +105,6 @@ function AgregarCampo() {
             setLoading(false);
         }
     };
-
     return (
         <div className="flex justify-center items-center h-screen">
             <form
@@ -87,7 +112,7 @@ function AgregarCampo() {
                 className="flex flex-col w-1/4 m-auto text-white space-y-5 text-xl"
             >
                 <div>
-                    <label className='text-2xl' htmlFor="campo">¿Qué habilidad quieres aprender para el desarrollo de tu SaaS?</label>
+                    <label className='text-2xl' htmlFor="campo">¿Qué Juego de Estrategia quieres Aprender?</label>
                     <select
                         className="style-input w-full"
                         id="campo"
@@ -95,54 +120,117 @@ function AgregarCampo() {
                         onChange={handleInputChange}
                     >
                         <option value="">Selecciona un campo</option>
-                        <option value="Arquitectura de Software">Arquitectura de Software</option>
-                        <option value="Programacion Frontend">Programacion Frontend</option>
-                        <option value="Programacion Backend">Programacion Backend</option>
-                        <option value="Gestion de Productos SaaS">Gestion de Productos SaaS</option>
-                        <option value="DevOps y Despliegue">DevOps y Despliegue</option>
-                        <option value="Autenticación y Seguridad">Autenticación y Seguridad </option>
-                        <option value="Monetización y Estrategias de Precios">Monetización y Estrategias de Precios</option>
-                        <option value="Marketing para SaaS">Marketing para SaaS</option>
-                        <option value="Soporte y Atención al Cliente">Soporte y Atención al Cliente</option>
-                        <option value="Análisis de la Competencia y Posicionamiento">Análisis de la Competencia y Posicionamiento</option>
-                        <option value="Mantenimiento y Actualizaciones">Mantenimiento y Actualizaciones</option>
-                    </select>
-                </div>
-                <div className="flex flex-col">
-                    <label className='text-2xl' htmlFor="nivelExperiencia">
-                        ¿Qué experiencia tienes del campo?
-                    </label>
-                    <select
-                        className="style-input"
-                        id="nivelExperiencia"
-                        value={informacionTema.nivelExperiencia}
-                        onChange={handleInputChange}
-                    >
-                        <option value="Sin experiencia">Sin experiencia</option>
-                        <option value="Con experiencia">Con experiencia</option>
+                        <option value="Ajedrez">Ajedrez</option>
+                        <option value="Poker Texas Holdem">Poker Texas Holdem</option>
                     </select>
                 </div>
 
-                {informacionTema.nivelExperiencia === "Con experiencia" && (
+                {informacionTema.campo === "Ajedrez" && (
                     <div>
-                        <label className='text-2xl' htmlFor="descripcionExperiencia">Especifica tu experiencia</label>
-                        <textarea
-                            className="style-input bg-black text-white w-full"
-                            type="text"
-                            id="descripcionExperiencia"
-                            value={informacionTema.descripcionExperiencia}
+                        <label className='text-2xl' htmlFor="experienciaAjedrez">¿Cual es tu Elo?</label>
+                        <select 
+                            id="experienciaAjedrez"
+                            className="style-input w-full"
+                            value={informacionTema.experienciaAjedrez}
                             onChange={handleInputChange}
-                            placeholder="Se lo mas descriptivo posible para una mejor experiencia..."
-                        />
+                        >
+                            <option value="No tengo elo">No tengo elo</option>
+                            <option value="Elo online">Elo online</option>
+                            <option value="Elo fide">Elo fide</option>
+                        </select>
+                    </div>
+                )}
+
+                {(informacionTema.campo === "Ajedrez" && informacionTema.experienciaAjedrez === "Elo online" || informacionTema.experienciaAjedrez === "Elo fide") && (
+                    <div>
+                        <div>
+                            <label className='text-2xl' htmlFor="elo">¿Cuanto elo tienes?</label>
+                            <input 
+                                type="number"
+                                id='elo'
+                                className='style-input w-full'
+                                value={informacionTema.elo}
+                                onChange={handleInputChange}
+                            />
+                        </div>
+                        <div>
+                            <label className='text-2xl' htmlFor="pgnFile">Sube tus últimas 10 partidas en formato PGN</label>
+                                <input 
+                                    type="file"
+                                    id={`pgnFile`}
+                                    className='style-input w-full'
+                                    accept=".pgn"
+                                    onChange={(e) => handleFileChange(e, 'pgnFile')}
+                                />
+                        </div>
+                    </div>
+                )}
+
+                {informacionTema.campo === "Poker Texas Holdem" && (
+                    <div>
+                        <div>
+                        <label className='text-2xl' htmlFor="tipoPoker">¿Qué tipo de Poker te interesa?</label>
+                        <select 
+                            id="tipoPoker"
+                            className="style-input w-full"
+                            value={informacionTema.tipoPoker}
+                            onChange={handleInputChange}
+                        >
+                            <option value="">Selecciona un tipo</option>
+                            <option value="Cash games">Cash games</option>
+                            <option value="Torneos">Torneos</option>
+                            <option value="Sit and Go">Sit and Go</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="softwaresPoker">¿Tienes manos jugadas en algun software de poker?</label>
+                        <select 
+                        id="softwaresPoker"
+                        className='style-input w-full'
+                        value={informacionTema.softwaresPoker}
+                        onChange={handleInputChange}>
+                            <option value="Si">Si</option>
+                            <option value="No">No</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label htmlFor="limiteMesa">¿En que mesas juegas?</label>
+                        <select 
+                        id="limiteMesa"
+                        className='style-input w-full'
+                        value={informacionTema.limiteMesa}
+                        onChange={handleInputChange}>
+                            <option value="Micro-stakes">Micro-stakes(NL2-NL25)</option>
+                            <option value="Low-stakes">Low-stakes(NL50-NL200)</option>
+                            <option value="Mid-stakes">Mid-stakes(NL400-NL2000)</option>
+                            <option value="High-stakes">High-stakes(NL5000+)</option>
+                        </select>
+                    </div>
+                    </div>
+                )}
+                {informacionTema.campo === "Poker Texas Holdem" && informacionTema.softwaresPoker === "Si" && (
+                    <div>
+                        <label className='text-2xl' htmlFor="pokerHands">Sube tus 10 manos mas significantes en formato texto</label>
+                        {[...Array(10)].map((_, index) => (
+                            <input 
+                                key={index}
+                                type="file"
+                                id={`pokerHand${index}`}
+                                className='style-input w-full'
+                                accept=".txt"
+                                onChange={(e) => handleFileChange(e, 'pokerHands')}
+                            />
+                        ))}
                     </div>
                 )}
                 <div>
-                    <label className='text-2xl' htmlFor="nivelIntensidad">¿Que nivel de intensidad quieres en el plan?</label>
+                    <label className='text-2xl' htmlFor="nivelIntensidad">¿Que nivel de intensidad quieres el plan?</label>
                     <select 
                     id="nivelIntensidad"
                     className='style-input w-full' 
                     value={informacionTema.nivelIntensidad}
                     onChange={handleInputChange}>
+                        <option value="">Selecciona un nivel</option>
                         <option value="bajo">Bajo</option>
                         <option value="alto">Alto</option>
                     </select>

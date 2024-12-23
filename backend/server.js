@@ -1,21 +1,18 @@
 const express = require('express');
-const cors = require('cors');
-const chatRoutes = require('./routes/chat');
-require('dotenv').config();
-
+const cors = require('cors'); // Importa el middleware cors
 const app = express();
-const PORT = process.env.PORT || 5000;
+const admin = require('./firebase'); // Importa la inicialización de Firebase
 
-const corsOptions = {
-    origin: "http://localhost:5173",  // Cambia el puerto de tu frontend si es necesario
-    methods: ["GET", "POST"],
-};
+// Configura CORS para permitir solicitudes desde http://localhost:5173
+app.use(cors({
+    origin: 'http://localhost:5173'
+}));
 
-app.use(cors(corsOptions));  // Configura CORS para permitir solicitudes desde tu frontend
-
+// Resto de tu configuración de servidor
 app.use(express.json());
-app.use('/api/chat', chatRoutes);  // Registra la ruta del chat
+app.use('/api/chat', require('./routes/chat'));
 
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });

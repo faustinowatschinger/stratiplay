@@ -28,22 +28,27 @@ function App() {
 
           {/* Main Content */}
           <main className='bg-[#4D4D4D] flex-1 overflow-auto'>
-            <Routes>
-              <Route path="/" element={
-                <article className='flex flex-col h-full items-center justify-center'>
-                  <div className="w-1/2 text-white flex flex-col items-start justify-center">
-                  <h2 className="text-2xl">Aprende a Ser un Creador de Contenido Exitoso con Learnify</h2>
-                  <p className="text-xl">Learnify es la plataforma todo en uno que te guía paso a paso en tu camino hacia el éxito como creador de contenido. Con planes semanales personalizados y generados automáticamente por inteligencia artificial, aprenderás a crear contenido, gestionar newsletters y lanzar infoproductos, todo optimizado para tu tiempo y conocimiento. ¡Comienza hoy y transforma tu pasión en una carrera exitosa!</p>
-                  <Link to="/agregar-campo" className="text-lg bg-black p-1 rounded-lg">Empieza a aprender</Link>
-                  </div>
-                </article>
-              } />
-              <Route path="/catalogo-campos" element={<Catalogo />} />
-              <Route path="/agregar-campo" element={<AgregarCampo />} />
-              <Route path="/informacion-campo" element={<InformacionCampo />} />
-              <Route path="/auth-form" element={<AuthForm />} />
-            </Routes>
-          </main>
+    <Routes>
+        <Route path="/" element={
+          <>
+          <article className='flex flex-col h-full items-center justify-center'>
+                <div className="w-1/2 text-white flex flex-col items-start justify-center">
+                    <h1 className="text-2xl">¿Porque usar Stratiplay?</h1>
+                    <p className="text-xl">
+                    Stratiplay es una plataforma innovadora para el aprendizaje de juegos de estrategia. Te ofrece un plan de estudio personalizado basado en la información que proporcionas, optimizando tu progreso y garantizando una experiencia de usuario fluida e intuitiva.
+                    </p>
+                    <Link to="/agregar-campo" className="text-lg bg-black p-1 rounded-lg">Empieza a aprender</Link>
+                </div>
+              </article>
+          </>
+
+        } />
+        <Route path="/catalogo-campos" element={<Catalogo />} />
+        <Route path="/agregar-campo" element={<AgregarCampo />} />
+        <Route path="/informacion-campo" element={<InformacionCampo />} />
+        <Route path="/auth-form" element={<AuthForm />} />
+    </Routes>
+</main>
         </div>
       </Router>
     </>

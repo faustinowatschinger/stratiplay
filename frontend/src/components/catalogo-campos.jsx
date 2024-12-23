@@ -23,11 +23,11 @@ function Catalogo() {
                         className="flex flex-col bg-black text-white p-5 gap-3 rounded-xl items-center justify-center"
                     >
                         <h3 className="text-xl">{tema.campoEstudio || "Subcampo no especificado"}</h3>
-                        <p>{tema.planEstudio?.descripcion || "Descripción no especificada"}</p>
+                        <img className="w-36" src={tema.campoEstudio === "Poker Texas Holdem" ? "/imagenes/cartas-de-poquer.png" : tema.campoEstudio === "Ajedrez" ? "/imagenes/ajedrez.png" : null} alt="" />
                         <div className="flex flex-row gap-2">
                         <button
                             className="bg-white text-black p-1 rounded-lg"
-                            onClick={() => navigate("/informacion-campo", { state: { planEstudio: tema } })}
+                            onClick={() => navigate("/informacion-campo", { state: { planId: tema.id } })}
                         >
                             Estudiar
                         </button>
