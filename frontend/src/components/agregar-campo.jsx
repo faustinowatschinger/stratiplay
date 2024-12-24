@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { auth } from './firebase';
@@ -23,6 +23,31 @@ function AgregarCampo() {
 
     const [planEstudio, setPlanEstudio] = useState("");
     const [loading, setLoading] = useState(false);
+    const [camposEstudiados, setCamposEstudiados] = useState([]);
+
+    useEffect(() => {
+        const fetchCamposEstudiados = async () => {
+            try {
+                const user = auth.currentUser;
+                if (!user) {
+                    throw new Error("No estás autenticado. Por favor, inicia sesión.");
+                }
+
+                const token = await user.getIdToken();
+                const response = await axios.get('http://localhost:5000/api/chat/campos-estudiados', {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                });
+
+                setCamposEstudiados(response.data);
+            } catch (error) {
+                console.error('Error al obtener los campos estudiados:', error);
+            }
+        };
+
+        fetchCamposEstudiados();
+    }, []);
 
     const handleInputChange = (e) => {
         const { id, value } = e.target;
@@ -84,14 +109,26 @@ function AgregarCampo() {
                 };
             }
 
+            const formData = new FormData();
+            formData.append('informacionTema', JSON.stringify(datosEnviar));
+            if (datosEnviar.pgnFile) {
+                formData.append('pgnFile', datosEnviar.pgnFile, datosEnviar.pgnFile.name);
+            }
+            datosEnviar.pokerHands.forEach((file, index) => {
+                if (file) {
+                    formData.append(`pokerHands[${index}]`, file, file.name);
+                }
+            });
+
             console.log('Datos enviados:', { informacionTema: datosEnviar });
 
             const response = await axios.post(
                 'http://localhost:5000/api/chat/custom-prompt',
-                { informacionTema: datosEnviar },
+                formData,
                 {
                     headers: {
                         Authorization: `Bearer ${token}`,
+                        'Content-Type': 'multipart/form-data',
                     },
                 }
             );
@@ -105,13 +142,16 @@ function AgregarCampo() {
             setLoading(false);
         }
     };
+
+    const camposDisponibles = ["Ajedrez", "Poker Texas Holdem"].filter(campo => !camposEstudiados.includes(campo));
+
     return (
         <div className="flex justify-center items-center h-screen">
             <form
                 onSubmit={handleSubmit}
-                className="flex flex-col w-1/4 m-auto text-white space-y-5 text-xl"
+                className="flex flex-col w-max m-auto items-center justify-center text-white bg-[#4D4D4D] p-3 rounded-lg space-y-5 text-xl"
             >
-                <div>
+                <div className='flex flex-col items-center justify-center w-full'>
                     <label className='text-2xl' htmlFor="campo">¿Qué Juego de Estrategia quieres Aprender?</label>
                     <select
                         className="style-input w-full"
@@ -120,17 +160,18 @@ function AgregarCampo() {
                         onChange={handleInputChange}
                     >
                         <option value="">Selecciona un campo</option>
-                        <option value="Ajedrez">Ajedrez</option>
-                        <option value="Poker Texas Holdem">Poker Texas Holdem</option>
+                        {camposDisponibles.map(campo => (
+                            <option key={campo} value={campo}>{campo}</option>
+                        ))}
                     </select>
                 </div>
 
                 {informacionTema.campo === "Ajedrez" && (
-                    <div>
+                    <div className='flex flex-col items-center justify-center w-full'>
                         <label className='text-2xl' htmlFor="experienciaAjedrez">¿Cual es tu Elo?</label>
                         <select 
                             id="experienciaAjedrez"
-                            className="style-input w-full"
+                            className="style-input"
                             value={informacionTema.experienciaAjedrez}
                             onChange={handleInputChange}
                         >
@@ -141,24 +182,24 @@ function AgregarCampo() {
                     </div>
                 )}
 
-                {(informacionTema.campo === "Ajedrez" && informacionTema.experienciaAjedrez === "Elo online" || informacionTema.experienciaAjedrez === "Elo fide") && (
-                    <div>
-                        <div>
+                {(informacionTema.campo === "Ajedrez" && (informacionTema.experienciaAjedrez === "Elo online" || informacionTema.experienciaAjedrez === "Elo fide")) && (
+                    <div className='flex flex-col items-center justify-center w-full'>
+                        <div className='flex flex-col items-center justify-center w-full'>
                             <label className='text-2xl' htmlFor="elo">¿Cuanto elo tienes?</label>
                             <input 
                                 type="number"
                                 id='elo'
-                                className='style-input w-full'
+                                className='style-input'
                                 value={informacionTema.elo}
                                 onChange={handleInputChange}
                             />
                         </div>
-                        <div>
+                        <div className='flex flex-col items-center justify-center w-full'>
                             <label className='text-2xl' htmlFor="pgnFile">Sube tus últimas 10 partidas en formato PGN</label>
                                 <input 
                                     type="file"
                                     id={`pgnFile`}
-                                    className='style-input w-full'
+                                    className='style-input'
                                     accept=".pgn"
                                     onChange={(e) => handleFileChange(e, 'pgnFile')}
                                 />
@@ -167,12 +208,12 @@ function AgregarCampo() {
                 )}
 
                 {informacionTema.campo === "Poker Texas Holdem" && (
-                    <div>
-                        <div>
+                    <div className='flex flex-col items-center justify-center w-full'>
+                        <div className='flex flex-col items-center justify-center w-full'>
                         <label className='text-2xl' htmlFor="tipoPoker">¿Qué tipo de Poker te interesa?</label>
                         <select 
                             id="tipoPoker"
-                            className="style-input w-full"
+                            className="style-input"
                             value={informacionTema.tipoPoker}
                             onChange={handleInputChange}
                         >
@@ -182,34 +223,19 @@ function AgregarCampo() {
                             <option value="Sit and Go">Sit and Go</option>
                         </select>
                     </div>
-                    <div>
+                    <div className='flex flex-col items-center justify-center w-full'>
                         <label htmlFor="softwaresPoker">¿Tienes manos jugadas en algun software de poker?</label>
                         <select 
                         id="softwaresPoker"
-                        className='style-input w-full'
+                        className='style-input'
                         value={informacionTema.softwaresPoker}
                         onChange={handleInputChange}>
                             <option value="Si">Si</option>
                             <option value="No">No</option>
                         </select>
                     </div>
-                    <div>
-                        <label htmlFor="limiteMesa">¿En que mesas juegas?</label>
-                        <select 
-                        id="limiteMesa"
-                        className='style-input w-full'
-                        value={informacionTema.limiteMesa}
-                        onChange={handleInputChange}>
-                            <option value="Micro-stakes">Micro-stakes(NL2-NL25)</option>
-                            <option value="Low-stakes">Low-stakes(NL50-NL200)</option>
-                            <option value="Mid-stakes">Mid-stakes(NL400-NL2000)</option>
-                            <option value="High-stakes">High-stakes(NL5000+)</option>
-                        </select>
-                    </div>
-                    </div>
-                )}
-                {informacionTema.campo === "Poker Texas Holdem" && informacionTema.softwaresPoker === "Si" && (
-                    <div>
+                    {informacionTema.campo === "Poker Texas Holdem" && informacionTema.softwaresPoker === "Si" && (
+                    <div className='flex flex-col items-center justify-center w-full'>
                         <label className='text-2xl' htmlFor="pokerHands">Sube tus 10 manos mas significantes en formato texto</label>
                         {[...Array(10)].map((_, index) => (
                             <input 
@@ -223,11 +249,26 @@ function AgregarCampo() {
                         ))}
                     </div>
                 )}
-                <div>
+                    <div className='flex flex-col items-center justify-center w-full'>
+                        <label htmlFor="limiteMesa">¿En que mesas juegas?</label>
+                        <select 
+                        id="limiteMesa"
+                        className='style-input '
+                        value={informacionTema.limiteMesa}
+                        onChange={handleInputChange}>
+                            <option value="Micro-stakes">Micro-stakes(NL2-NL25)</option>
+                            <option value="Low-stakes">Low-stakes(NL50-NL200)</option>
+                            <option value="Mid-stakes">Mid-stakes(NL400-NL2000)</option>
+                            <option value="High-stakes">High-stakes(NL5000+)</option>
+                        </select>
+                    </div>
+                    </div>
+                )}
+                <div className='flex flex-col items-center justify-center w-full'>
                     <label className='text-2xl' htmlFor="nivelIntensidad">¿Que nivel de intensidad quieres el plan?</label>
                     <select 
                     id="nivelIntensidad"
-                    className='style-input w-full' 
+                    className='style-input' 
                     value={informacionTema.nivelIntensidad}
                     onChange={handleInputChange}>
                         <option value="">Selecciona un nivel</option>
@@ -235,7 +276,7 @@ function AgregarCampo() {
                         <option value="alto">Alto</option>
                     </select>
                 </div>
-                <div>
+                <div className='flex flex-col items-center justify-center w-full'>
                     <label className='text-2xl'>¿Qué días a la semana vas a estudiar?</label>
                     <div className="flex flex-wrap gap-4 items-center">
                         {["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"].map(
@@ -255,7 +296,7 @@ function AgregarCampo() {
                     </div>
                 </div>
 
-                <button className="bg-black w-max p-2 rounded-lg mt-4 m-auto" type="submit" disabled={loading}>
+                <button className="bg-[#252525] w-max p-2 rounded-lg mt-4 m-auto" type="submit" disabled={loading}>
                     {loading ? "Generando..." : "Agregar"}
                 </button>
             </form>

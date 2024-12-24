@@ -4,6 +4,8 @@ const admin = require('firebase-admin');
 const winston = require('winston');
 const router = express.Router();
 require('dotenv').config();
+const multer = require('multer');
+const upload = multer();
 
 // Inicialización de Firebase
 const serviceAccount = require('../config/ordo-62889-firebase-adminsdk-zl2wb-dd93e17d22.json');
@@ -48,6 +50,28 @@ const actualizarEstadoTarea = async (uid, planId, diaIndex, tareaIndex, nuevoEst
     }
 };
 
+const actualizarEstadoObjetivo = async (uid, planId, objetivoIndex, nuevoEstado) => {
+    try {
+        const userRef = db.collection('usuarios').doc(uid);
+        const planRef = userRef.collection('planesEstudio').doc(planId);
+        const planDoc = await planRef.get();
+
+        if (!planDoc.exists) {
+            throw new Error('El plan de estudio no existe');
+        }
+
+        const planData = planDoc.data();
+        if (nuevoEstado) {
+            planData.objetivos[objetivoIndex].estado = nuevoEstado;
+        }
+
+        await planRef.update(planData);
+        logger.info('Estado del objetivo actualizado exitosamente');
+    } catch (error) {
+        logger.error('Error al actualizar el estado del objetivo:', error);
+        throw new Error('Error al actualizar el estado del objetivo');
+    }
+};
 // Función para truncar el string
 const truncateString = (str, maxLength) => {
     if (!str) return "";
@@ -82,8 +106,8 @@ const eliminarPlanEstudio = async (uid, planId) => {
 };
 
 
-router.post('/custom-prompt', async (req, res) => {
-    const { informacionTema } = req.body;
+router.post('/custom-prompt', upload.fields([{ name: 'pgnFile' }, { name: 'pokerHands' }]), async (req, res) => {
+    const informacionTema = JSON.parse(req.body.informacionTema);
 
     if (!informacionTema || !informacionTema.campo || !informacionTema.nivelIntensidad) {
         logger.error('Campos obligatorios faltantes: campo y nivelIntensidad.');
@@ -114,8 +138,8 @@ router.post('/custom-prompt', async (req, res) => {
         SubCampo a estudiar: ${informacionTema.subCampo || 'No especificado'},
         Nivel intensidad: ${informacionTema.nivelIntensidad},
         Días de estudio: ${informacionTema.diasEstudio?.length > 0 ? informacionTema.diasEstudio.join(', ') : 'No especificado'},
-        Tareas completadas: ${informacionTema.tareasCompletadas.map(tarea => tarea.titulo).join(', ')},
-        Objetivos completados: ${informacionTema.objetivosCompletados.map(objetivo => objetivo.titulo).join(', ')},
+        Tareas completadas: ${informacionTema.tareasCompletadas?.map(tarea => tarea.titulo).join(', ') || 'Ninguna'},
+        Objetivos completados: ${informacionTema.objetivosCompletados?.map(objetivo => objetivo.titulo).join(', ') || 'Ninguno'},
         Necesito un plan de estudio detallado, incluyendo objetivos claros, un plan semanal con temas específicos y tareas diarias, todos los días seleccionados tienen que tener sus respectivas tareas sin excepción. Asegúrate de que los campos 'planEstudio', 'objetivos' contengan información detallada.`;
 
         // Agregar lógica condicional para modificar el promptContent
@@ -123,7 +147,7 @@ router.post('/custom-prompt', async (req, res) => {
             promptContent += `
             Elo: ${informacionTema.elo || 'No especificado'},
             Experiencia en Ajedrez: ${informacionTema.experienciaAjedrez || 'No especificado'},
-            Archivos PGN: ${informacionTema.pgnFile ? informacionTema.pgnFile.name : 'No especificado'}
+            Archivos PGN: ${req.files['pgnFile'] ? req.files['pgnFile'][0].originalname : 'No especificado'}
             Tienes que analizar detalladamente el archivo PGN donde se encuentran las últimas 10 partidas de ajedrez del usuario, basándote en esas partidas tienes que saber qué estilo de juego tiene, sus errores comunes, puntos fuertes, puntos débiles, etc.
 
             Fundamentos del Ajedrez:
@@ -144,7 +168,7 @@ Evaluación Continua: Realizar autoevaluaciones periódicas para identificar for
         } else if (informacionTema.campo === 'Poker Texas Holdem') {
             promptContent += `
             Tipo de Poker: ${informacionTema.tipoPoker || 'No especificado'},
-            Manos de Poker: ${informacionTema.pokerHands ? informacionTema.pokerHands.filter(file => file !== null).map(file => file.name).join(', ') : 'No especificado'},
+            Manos de Poker: ${req.files['pokerHands'] ? req.files['pokerHands'].map(file => file.originalname).join(', ') : 'No especificado'},
             Límite de mesas: ${informacionTema.limiteMesa || 'No especificado'},
             Softwares de Poker: ${informacionTema.softwaresPoker || 'No especificado'},
             Tienes que analizar detalladamente las manos de poker proporcionadas por el usuario, basándote en esas manos tienes que saber qué errores comete, qué manos juega, su estilo de juego, etc.
@@ -232,7 +256,8 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                                         type: "object",
                                         properties: {
                                             titulo: { type: "string", description: "Título del objetivo." },
-                                            descripcion: { type: "string", description: "Descripción del objetivo." }
+                                            descripcion: { type: "string", description: "Descripción del objetivo." },
+                                            estado: { type: "string", enum: ["esperando", "enProceso", "finalizado"], description: "Estado del objetivo." },
                                         },
                                         required: ["titulo", "descripcion"]
                                     }
@@ -310,6 +335,37 @@ router.delete('/eliminar-plan/:planId', async (req, res) => {
     }
 });
 
+router.get('/campos-estudiados', async (req, res) => {
+    let uid;
+    try {
+        const idToken = req.headers.authorization?.split(' ')[1];
+        if (!idToken) {
+            throw new Error('Token no proporcionado');
+        }
+
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        uid = decodedToken.uid;
+
+        if (!uid) {
+            throw new Error('El token no contiene un UID');
+        }
+    } catch (error) {
+        logger.error('Error al verificar el token:', error.message);
+        return res.status(401).json({ error: 'Autenticación fallida: ' + error.message });
+    }
+
+    try {
+        const userRef = db.collection('usuarios').doc(uid);
+        const planesSnapshot = await userRef.collection('planesEstudio').get();
+        const camposEstudiados = planesSnapshot.docs.map(doc => doc.data().campo);
+
+        return res.json(camposEstudiados);
+    } catch (error) {
+        logger.error('Error al obtener los campos estudiados:', error.message);
+        return res.status(500).json({ error: 'Error al obtener los campos estudiados', details: error.message });
+    }
+});
+
 router.post('/actualizar-estado-tarea', async (req, res) => {
     const { planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad } = req.body;
 
@@ -337,6 +393,36 @@ router.post('/actualizar-estado-tarea', async (req, res) => {
     } catch (error) {
         logger.error('Error al actualizar el estado y/o prioridad de la tarea:', error.message);
         return res.status(500).json({ error: 'Error al actualizar el estado y/o prioridad de la tarea', details: error.message });
+    }
+});
+
+router.post('/actualizar-estado-objetivo', async (req, res) => {
+    const { planId, objetivoIndex, nuevoEstado } = req.body;
+
+    let uid;
+    try {
+        const idToken = req.headers.authorization?.split(' ')[1];
+        if (!idToken) {
+            throw new Error('Token no proporcionado');
+        }
+
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        uid = decodedToken.uid;
+
+        if (!uid) {
+            throw new Error('El token no contiene un UID');
+        }
+    } catch (error) {
+        logger.error('Error al verificar el token:', error.message);
+        return res.status(401).json({ error: 'Autenticación fallida: ' + error.message });
+    }
+
+    try {
+        await actualizarEstadoObjetivo(uid, planId, objetivoIndex, nuevoEstado);
+        return res.status(200).json({ message: 'Estado del objetivo actualizado correctamente.' });
+    } catch (error) {
+        logger.error('Error al actualizar el estado del objetivo:', error.message);
+        return res.status(500).json({ error: 'Error al actualizar el estado del objetivo', details: error.message });
     }
 });
 

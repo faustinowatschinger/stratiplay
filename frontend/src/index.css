@@ -4,6 +4,9 @@
 
 @layer base {
     input, select{
-      @apply text-white bg-black p-1 rounded-lg;
+      @apply text-white bg-[#252525] w-full text-center p-1 rounded-lg;
+    }
+    section{
+      @apply flex flex-col items-center bg-[#4D4D4D] justify-center w-11/12 mt-20  rounded-lg p-5;
     }
   }

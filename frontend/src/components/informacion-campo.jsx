@@ -169,6 +169,32 @@ function InformacionCampo() {
             throw new Error('Error al actualizar el estado y/o prioridad en la base de datos');
         }
     };
+    const actualizarEstadoObjetivoEnBD = async (planId, objetivoIndex, nuevoEstado) => {
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) {
+                throw new Error("No estás autenticado. Por favor, inicia sesión.");
+            }
+    
+            const token = await user.getIdToken();
+    
+            await axios.post(
+                'http://localhost:5000/api/chat/actualizar-estado-objetivo',
+                { planId, objetivoIndex, nuevoEstado },
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                    },
+                }
+            );
+    
+            console.log('Estado del objetivo actualizado correctamente en la base de datos');
+        } catch (error) {
+            console.error('Error al actualizar el estado del objetivo en la base de datos:', error);
+            throw new Error('Error al actualizar el estado del objetivo en la base de datos');
+        }
+    };
 
     const handleEstadoTareaChange = async (diaIndex, tareaIndex, nuevoEstado) => {
         try {
@@ -181,6 +207,19 @@ function InformacionCampo() {
             await actualizarEstadoTareaEnBD(planId, diaIndex, tareaIndex, nuevoEstado, null);
         } catch (error) {
             console.error('Error al actualizar el estado de la tarea:', error);
+        }
+    };
+    const handleEstadoObjetivoChange = async (objetivoIndex, nuevoEstado) => {
+        try {
+            setObjetivosConEstado((prevState) => {
+                const newState = [...prevState];
+                newState[objetivoIndex].estado = nuevoEstado;
+                return newState;
+            });
+    
+            await actualizarEstadoObjetivoEnBD(planId, objetivoIndex, nuevoEstado);
+        } catch (error) {
+            console.error('Error al actualizar el estado del objetivo:', error);
         }
     };
     
@@ -205,12 +244,6 @@ function InformacionCampo() {
     const handlePrioridadTablaChange = (e) => {
         setPrioridadTabla(e.target.value);
     };
-  
-    const handleEstadoObjetivoChange = (objetivoIndex, nuevoEstado) => {
-        const nuevosObjetivos = [...objetivosConEstado];
-        nuevosObjetivos[objetivoIndex].estado = nuevoEstado;
-        setObjetivosConEstado(nuevosObjetivos);
-    };
 
     const handleEstadoTablaObjetivoChange = (e) => {
         setEstadoTablaObjetivo(e.target.value);
@@ -219,63 +252,61 @@ function InformacionCampo() {
     const totalTareas = planEstudio.planEstudio.reduce((total, dia) => total + dia.tareas.length, 0);
 
     return (
-        <article className='flex flex-col items-center justify-center gap-60 text-white'>
-            <section className='flex flex-col items-center justify-center'>
-                <h1 className='text-4xl'>{planEstudio.campoEstudio}</h1>
-                <img className="w-36" src={planEstudio.campoEstudio === "Poker Texas Holdem" ? "/imagenes/cartas-de-poquer.png" : planEstudio.campoEstudio === "Ajedrez" ? "/imagenes/ajedrez.png" : null} alt="" />
-                <button onClick={porcentajeSemana === 100 ? handlePrograsarPlan : null} className='bg-black p-1 rounded-lg'>Avanzar</button>
-            </section>
-            <section className='flex flex-row items-center justify-center gap-10'>
+        <article className='flex flex-col items-center justify-center p-10 text-white'>
+            <section>
+    <section className='flex flex-col items-center w-full mt-0 justify-center'>
+        <h1 className='text-4xl'>{planEstudio.campoEstudio}</h1>
+        <img className="w-36" src={planEstudio.campoEstudio === "Poker Texas Holdem" ? "/imagenes/cartas-de-poquer.png" : planEstudio.campoEstudio === "Ajedrez" ? "/imagenes/ajedrez.png" : null} alt="" />
+        {porcentajeSemana === 100 && <button onClick={handlePrograsarPlan} className='bg-black p-1 rounded-lg'>Avanzar</button>}
+    </section>
+    <section className='flex flex-row items-center justify-center gap-10'>
                 <div className='flex flex-col items-center justify-center'>
                     <p className='mb-5 text-xl'>Semana terminada</p>
-                    <div className='w-32 h-32'>
+                    <div className='relative w-32 h-32'>
                         <CircularProgressbar
                             value={porcentajeSemana || 0}
-                            text={`${(porcentajeSemana || 0).toFixed(2)}%`}
                             styles={buildStyles({
-                                textColor: "white",
                                 pathColor: "black",
                                 trailColor: "#D6D6D6",
-                                textSize: "16px",
                             })}
                         />
+                        <div className='absolute inset-0 flex items-center justify-center text-white text-lg'>
+                            {`${(porcentajeSemana || 0).toFixed(2)}%`}
+                        </div>
                     </div>
                 </div>
                 <div className='flex flex-col items-center justify-center'>
                     <p className='mb-5 text-xl'>Tareas terminadas</p>
-                    <div className='w-32 h-32'>
+                    <div className='relative w-32 h-32'>
                         <CircularProgressbar
                             value={(tareasFinalizadas.length / totalTareas) * 100}
-                            text={`${tareasFinalizadas.length}/${totalTareas}`}
                             styles={buildStyles({
-                                textColor: "white",
                                 pathColor: "black",
                                 trailColor: "#D6D6D6",
-                                textSize: "18px",
-                                textAnchor: "middle",
-                                dominantBaseline: "middle",
                             })}
                         />
+                        <div className='absolute inset-0 flex items-center justify-center text-white text-lg'>
+                            {`${tareasFinalizadas.length}/${totalTareas}`}
+                        </div>
                     </div>
                 </div>
                 <div className='flex flex-col items-center justify-center'>
                     <p className='mb-5 text-xl'>Objetivos terminados</p>
-                    <div className='w-32 h-32'>
+                    <div className='relative w-32 h-32'>
                         <CircularProgressbar
                             value={(objetivosFinalizados.length / objetivosConEstado.length) * 100}
-                            text={`${objetivosFinalizados.length}/${objetivosConEstado.length}`}
                             styles={buildStyles({
-                                textColor: "white",
                                 pathColor: "black",
                                 trailColor: "#D6D6D6",
-                                textSize: "16px",
-                                textAlignment: "middle",
                             })}
                         />
+                        <div className='absolute inset-0 flex items-center justify-center text-white text-lg'>
+                            {`${objetivosFinalizados.length}/${objetivosConEstado.length}`}
+                        </div>
                     </div>
                 </div>
             </section>
-            <section className="flex flex-col items-center justify-center">
+            <section className="flex flex-col items-center w-full justify-center">
                 <h3 className="text-2xl">Tareas</h3>
                 <div className='flex flex-row items-center justify-center gap-10 mt-10'>
                     <div className='flex flex-col items-center justify-center '>
@@ -353,19 +384,23 @@ function InformacionCampo() {
                     </tbody>
                 </table>
             </section>
-            <section className="flex flex-col items-center justify-center">
+            <section className="flex flex-col items-center w-full justify-center">
                 <h3 className="text-2xl">Objetivos</h3>
+                <div className='flex flex-col items-center justify-center mt-10'>
+                    <h3>Estado</h3>
                 <select
                     onChange={handleEstadoTablaObjetivoChange}
                     className="style-input w-max"
                     name="estado"
                     id="estado"
                 >
+                    <option value="todas">Todas</option>
                     <option value="esperando">Esperando</option>
                     <option value="enProgreso">En progreso</option>
                     <option value="finalizado">Finalizado</option>
-                    <option value="todas">Todas</option>
+                    
                 </select>
+                </div>
 
                 <table className="table-auto border-separate border-spacing-4 w-full">
                     <thead className="text-lg">
@@ -400,6 +435,7 @@ function InformacionCampo() {
                             ))}
                     </tbody>
                 </table>
+            </section>
             </section>
         </article>
     );
