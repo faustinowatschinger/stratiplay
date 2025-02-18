@@ -1,14 +1,15 @@
-const express = require('express');
-const axios = require('axios');
-const admin = require('firebase-admin');
-const winston = require('winston');
-const router = express.Router();
-require('dotenv').config();
-const multer = require('multer');
-const upload = multer();
+import express from 'express';
+import axios from 'axios';
+import admin from 'firebase-admin';
+import winston from 'winston';
+import multer from 'multer';
+import dotenv from 'dotenv';
 
-// Inicialización de Firebase
-const serviceAccount = require('../config/ordo-62889-firebase-adminsdk-zl2wb-dd93e17d22.json');
+dotenv.config();
+const upload = multer();
+const router = express.Router();
+
+import serviceAccount from '../config/ordo-62889-firebase-adminsdk-zl2wb-dd93e17d22.json' assert { type: 'json' };
 if (!admin.apps.length) {
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
@@ -23,6 +24,7 @@ const logger = winston.createLogger({
         new winston.transports.Console({ format: winston.format.simple() })
     ]
 });
+
 
 const actualizarEstadoTarea = async (uid, planId, diaIndex, tareaIndex, nuevoEstado, nuevaPrioridad) => {
     try {
@@ -86,13 +88,23 @@ const guardarPlanEstudio = async (uid, planEstudio) => {
     try {
         const userRef = db.collection('usuarios').doc(uid);
         const planRef = userRef.collection('planesEstudio').doc();
-        await planRef.set(planEstudio);
+        const createdAt = new Date().toISOString();
+        // Combina el plan original con el campo createdAt
+        const planConFecha = {
+            ...planEstudio,
+            createdAt
+        };
+        await planRef.set(planConFecha);
         logger.info('Plan de estudio guardado exitosamente en la subcolección del usuario');
+        // Retornamos el id del plan y el objeto completo (incluyendo createdAt)
+        return { id: planRef.id, ...planConFecha };
     } catch (error) {
         logger.error('Error al guardar el plan de estudio en la subcolección:', error);
         throw new Error('Error al guardar el plan de estudio');
     }
 };
+
+
 const eliminarPlanEstudio = async (uid, planId) => {
     try {
         const userRef = db.collection('usuarios').doc(uid);
@@ -106,12 +118,21 @@ const eliminarPlanEstudio = async (uid, planId) => {
 };
 
 
-router.post('/custom-prompt', upload.fields([{ name: 'pgnFile' }, { name: 'pokerHands' }]), async (req, res) => {
-    const informacionTema = JSON.parse(req.body.informacionTema);
+// ...existing code...
+
+router.post('/custom-prompt', async (req, res) => {
+    let informacionTema;
+    try {
+        informacionTema = req.body.informacionTema;
+        console.log('Received informacionTema:', informacionTema);
+    } catch (error) {
+        logger.error('Error al analizar informacionTema:', error.message);
+        return res.status(400).json({ error: 'informacionTema no es un JSON válido' });
+    }
 
     if (!informacionTema || !informacionTema.campo || !informacionTema.nivelIntensidad) {
-        logger.error('Campos obligatorios faltantes: campo y nivelIntensidad.');
-        return res.status(400).json({ error: 'Campos obligatorios faltantes: campo y nivelIntensidad.' });
+        logger.error('Campos obligatorios faltantes: campoEstudio y nivelIntensidad.');
+        return res.status(400).json({ error: 'Campos obligatorios faltantes: campoEstudio y nivelIntensidad.' });
     }
 
     let uid;
@@ -120,10 +141,8 @@ router.post('/custom-prompt', upload.fields([{ name: 'pgnFile' }, { name: 'poker
         if (!idToken) {
             throw new Error('Token no proporcionado');
         }
-
         const decodedToken = await admin.auth().verifyIdToken(idToken);
         uid = decodedToken.uid;
-
         if (!uid) {
             throw new Error('El token no contiene un UID');
         }
@@ -133,82 +152,163 @@ router.post('/custom-prompt', upload.fields([{ name: 'pgnFile' }, { name: 'poker
     }
 
     try {
-        let promptContent = `uid del usuario: ${uid}
-        Campo a estudiar: ${informacionTema.campo}, 
-        SubCampo a estudiar: ${informacionTema.subCampo || 'No especificado'},
-        Nivel intensidad: ${informacionTema.nivelIntensidad},
-        Días de estudio: ${informacionTema.diasEstudio?.length > 0 ? informacionTema.diasEstudio.join(', ') : 'No especificado'},
-        Tareas completadas: ${informacionTema.tareasCompletadas?.map(tarea => tarea.titulo).join(', ') || 'Ninguna'},
-        Objetivos completados: ${informacionTema.objetivosCompletados?.map(objetivo => objetivo.titulo).join(', ') || 'Ninguno'},
-        Necesito un plan de estudio detallado, incluyendo objetivos claros, un plan semanal con temas específicos y tareas diarias, todos los días seleccionados tienen que tener sus respectivas tareas sin excepción. Asegúrate de que los campos 'planEstudio', 'objetivos' contengan información detallada.`;
 
-        // Agregar lógica condicional para modificar el promptContent
+        // Convierte una cadena del formato "lunes: 1, miercoles: 1, martes: 1, jueves: 1, viernes: 1" en un objeto
+const parseHorasString = (horasStr) => {
+    if (typeof horasStr !== 'string' || horasStr.trim() === '') {
+      return {};
+    }
+    const obj = {};
+    // Separa cada par "día: valor" usando la coma
+    const pairs = horasStr.split(',').map(item => item.trim());
+    pairs.forEach(pair => {
+      const parts = pair.split(':');
+      if (parts.length === 2) {
+        const dia = parts[0].trim();
+        const valor = parts[1].trim();
+        obj[dia] = valor;
+      }
+    });
+    return obj;
+  };
+  
+        // Eliminar solo el plan cuyo ID se envíe
+        if (req.body.eliminarAnterior) {
+            const planId = req.body.planId;
+            if (!planId) {
+                throw new Error('planId no proporcionado');
+            }
+            try {
+                const userRef = db.collection('usuarios').doc(uid);
+                const planRef = userRef.collection('planesEstudio').doc(planId);
+                const doc = await planRef.get();
+                if (!doc.exists) {
+                    logger.warn(`El documento con id ${planId} no existe en planesEstudio para el usuario ${uid}`);
+                } else {
+                    await planRef.delete();
+                    logger.info(`Plan de estudio con id ${planId} eliminado exitosamente para el usuario: ${uid}`);
+                }
+            } catch (error) {
+                logger.error('Error al eliminar el plan de estudio:', error);
+                throw new Error('Error al eliminar el plan de estudio');
+            }
+        }
+
+        // Construir el prompt usando los nombres de campos correctos
+        let contentSystem = `Eres un asistente que genera planes de estudio personalizados y adaptados a la informacion proporcionada por el usuario:
+                        -Campo a estudiar
+                        -Nivel intensidad
+                        -Horas de estudio por dia
+                        -Días de estudio
+                        -Objetivos completados
+                        -Tareas completadas
+                        -Progreso`;
+        if (informacionTema.campo === 'Ajedrez') {
+            contentSystem += `
+            -Experiencia del jugador 
+            -Tiempo de juego preferido
+            -Elo (Ten muy en cuenta el elo del jugador para crear tareas a acorde a su nivel)
+            -Conocimientos previos (Ten muy en cuenta los conocimientos previos del jugador para crear tareas a acorde a sus conocimientos y reforzarlos)`;
+        } else if (informacionTema.campo === 'Poker Texas Holdem') {
+            contentSystem += `
+            -Tipo de Poker
+            -Límite de mesas`;
+        }
+
+        // Procesar días: Si ya es cadena, se convierte en array
+let diasArray = Array.isArray(informacionTema.diasEstudio)
+? informacionTema.diasEstudio
+: (typeof informacionTema.diasEstudio === 'string'
+    ? informacionTema.diasEstudio.split(',').map(dia => dia.trim())
+    : []);
+
+// Procesar horas: Si es objeto, se usa tal cual; si es cadena, se parsea
+let horasEstudioObj;
+if (typeof informacionTema.horasEstudio === 'object' && informacionTema.horasEstudio !== null) {
+horasEstudioObj = informacionTema.horasEstudio;
+} else if (typeof informacionTema.horasEstudio === 'string') {
+horasEstudioObj = parseHorasString(informacionTema.horasEstudio);
+} else {
+horasEstudioObj = {};
+}
+
+let promptContent = `
+  uid del usuario: ${uid}
+  Campo a estudiar: ${informacionTema.campo}, 
+  Nivel intensidad: ${informacionTema.nivelIntensidad},
+  Días de estudio: ${diasArray.length > 0 ? diasArray.join(', ') : 'No especificado'},
+  Horas de estudio por día: ${diasArray.length > 0 ? diasArray.map(dia => `${dia}: ${horasEstudioObj[dia] || 'No especificado'}`).join(', ') : 'No especificado'},
+  Tareas completadas: ${Array.isArray(informacionTema.tareasCompletadas) ? informacionTema.tareasCompletadas.map(t => t.titulo).join(', ') : 'Ninguna'},
+  Objetivos completados: ${Array.isArray(informacionTema.objetivosCompletados) ? informacionTema.objetivosCompletados.map(o => o.titulo).join(', ') : 'Ninguno'},
+  Necesito un plan de estudio detallado teniendo en cuenta toda la información proporcionada, organizando días, incluyendo objetivos claros y tareas específicas. Cada tarea debe tener:
+  - Descripción detallada de lo que se debe estudiar.
+  - Fuentes recomendadas (libros, videos, blogs, herramientas, etc.).
+  - Ejercicios prácticos y evaluaciones para medir el progreso.
+  - Debe poder realizarse en el tiempo disponible y ser realista.
+  Para realizar las tareas y los objetivos, adapta el plan al nivel y experiencia del usuario.
+`;
+
+
         if (informacionTema.campo === 'Ajedrez') {
             promptContent += `
-            Elo: ${informacionTema.elo || 'No especificado'},
-            Experiencia en Ajedrez: ${informacionTema.experienciaAjedrez || 'No especificado'},
-            Archivos PGN: ${req.files['pgnFile'] ? req.files['pgnFile'][0].originalname : 'No especificado'}
-            Tienes que analizar detalladamente el archivo PGN donde se encuentran las últimas 10 partidas de ajedrez del usuario, basándote en esas partidas tienes que saber qué estilo de juego tiene, sus errores comunes, puntos fuertes, puntos débiles, etc.
+            Información específica para Ajedrez:
+            - Experiencia del jugador: ${informacionTema.experienciaAjedrez || 'No especificado'}.
+            - Quiero que tengas en cuenta esta lista de elo:
+            Principiante: ELO inferior a 1200
+            (Se asume que aún está aprendiendo conceptos básicos como la mecánica de las aperturas, movimientos y tácticas elementales.)
 
-            Fundamentos del Ajedrez:
+            Intermedio: ELO entre 1200 y 1600
+            (El jugador ya domina las tácticas básicas, conoce varias aperturas y tiene una comprensión general de la estrategia, pero aún puede mejorar en aspectos más complejos.)
 
-Aperturas: Los jugadores deben aprender las aperturas básicas y sus principios (control del centro, desarrollo de piezas, seguridad del rey). El conocimiento de varias aperturas permitirá una mejor preparación para la fase de medio juego.
-Tácticas: La resolución de problemas tácticos es esencial para mejorar la visión del tablero y el cálculo de combinaciones. Los temas incluyen pinzas, clavadas, doble ataque, jaque mate en varias jugadas, entre otros.
-Finales: Los finales son cruciales para transformar una ventaja en una victoria. Los jugadores deben estudiar finales de rey y peón, finales básicos de piezas, y técnicas de conversión de ventaja material.
-Métodos de Enseñanza y Estudio:
+            Avanzado: ELO entre 1600 y 2000
+            (El jugador tiene un buen conocimiento de la estrategia, sabe planificar en el medio juego y manejar situaciones de presión, pero aún puede pulir ciertos detalles.)
 
-Plataformas de Estudio: Usar plataformas como Chess.com, Lichess y otras herramientas interactivas, donde se pueda practicar y analizar partidas.
-Práctica Activa: Es importante jugar partidas regularmente, tanto rápidas como lentas, para poner en práctica lo aprendido.
-Análisis de Partidas: Analizar partidas propias y ajenas es esencial. Utilizar motores de ajedrez como Stockfish para recibir retroalimentación sobre jugadas específicas.
-Revisión de Grandes Maestros: Ver partidas de grandes maestros, entender sus planes y estrategias, y aprender de sus errores y aciertos.
-Personalización del Estudio:
-
-Ritmo de Estudio: Los jugadores deben establecer objetivos a corto y largo plazo. Es recomendable empezar con 15-30 minutos al día y aumentar la duración a medida que se avanza.
-Evaluación Continua: Realizar autoevaluaciones periódicas para identificar fortalezas y debilidades, y ajustar el plan de estudio en consecuencia.`;
+            Experto: ELO superior a 2000
+            (El jugador posee un dominio considerable del juego, entiende profundamente la estrategia, la táctica y tiene una alta capacidad para el análisis de partidas.)
+            ${informacionTema.experienciaAjedrez === 'Elo online' ? `- Elo chess.com/lichess del jugador: ${informacionTema.elo || 'No especificado'}.` : `- Elo fide del jugador: ${informacionTema.elo || 'No especificado'}.`}
+            - Tiempo de juego preferido: ${informacionTema.tiempo || 'No especificado'}.
+            - Conocimientos previos: ${informacionTema.conocimientosAjedrez || 'No especificado'}.
+            
+            Crea un plan para mejorar el rendimiento en ajedrez considerando:
+            1. Aperturas.
+            2. Táctica.
+            3. Estrategia y planes en el medio juego.
+            4. Finales.
+            5. Análisis de partidas.
+            
+            Recursos sugeridos:
+            - Chess.com, Lichess.org, Chessable.
+            - Libros: "100 Finales que debes saber", "Mi sistema".
+            - Videos y herramientas de análisis.`;
         } else if (informacionTema.campo === 'Poker Texas Holdem') {
             promptContent += `
-            Tipo de Poker: ${informacionTema.tipoPoker || 'No especificado'},
-            Manos de Poker: ${req.files['pokerHands'] ? req.files['pokerHands'].map(file => file.originalname).join(', ') : 'No especificado'},
-            Límite de mesas: ${informacionTema.limiteMesa || 'No especificado'},
-            Softwares de Poker: ${informacionTema.softwaresPoker || 'No especificado'},
-            Tienes que analizar detalladamente las manos de poker proporcionadas por el usuario, basándote en esas manos tienes que saber qué errores comete, qué manos juega, su estilo de juego, etc.
-
-            Fundamentos del Póker:
-
-Reglas Básicas: Comprender la estructura del juego, las manos ganadoras, las rondas de apuestas y el concepto de pot odds.
-Posición en la Mesa: El conocimiento de la posición es fundamental para decidir qué manos jugar. Los jugadores deben ser conscientes de las posiciones relativas y cómo afectan la toma de decisiones.
-Lectura de Oponentes: Estudiar las tendencias de los oponentes, aprender a leer sus comportamientos y patrones de apuestas es crucial para ganar ventajas.
-Métodos de Enseñanza y Estudio:
-
-Plataformas de Estudio: Usar plataformas de póker en línea como PokerStars, 888Poker y otras, que permiten jugar en mesas virtuales. Las plataformas también ofrecen herramientas de análisis de manos.
-Software de Estudio: Utilizar software como PokerTracker o Hold'em Manager para revisar y analizar las propias manos jugadas, así como las estadísticas de los oponentes.
-Estudio de Conceptos Avanzados: A medida que se avanza, estudiar estrategias más complejas como el uso del juego de probabilidades, la psicología del póker, y técnicas avanzadas de faroles.
-Práctica y Mejora:
-
-Jugar Regularmente: Jugar en mesas de diferentes niveles para adaptar el estilo de juego a situaciones de mayor o menor riesgo.
-Revisión de Manos: Es fundamental revisar las manos jugadas para identificar errores y patrones repetitivos. Las plataformas de póker suelen permitir hacer análisis detallados de las jugadas.
-Sesiones de Estudio: Los jugadores deben estudiar artículos, videos y libros sobre estrategias avanzadas, como "The Theory of Poker" de David Sklansky o "No Limit Hold'em Theory and Practice" de David Sklansky y Ed Miller.
-Personalización del Estudio:
-
-Establecer Metas Claras: Los jugadores deben fijar objetivos de mejora específicos, como mejorar en ciertas áreas del juego (por ejemplo, el juego pre-flop o post-flop).
-Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los oponentes y el contexto de la partida (torneos, cash games, etc.).`;
+            Información específica para Poker Texas Holdem:
+            - Tipo de Poker: ${informacionTema.tipoPoker || 'No especificado'}.
+            - Límite de mesas: ${informacionTema.limiteMesa || 'No especificado'}.
+            - Conocimientos previos: ${informacionTema.conocimientosPoker || 'No especificado'}.
+            
+            Crea un plan para mejorar habilidades en Poker Texas Holdem considerando:
+            1. Juego Preflop.
+            2. Juego Postflop.
+            3. Probabilidades y cálculos.
+            4. Estrategias avanzadas.
+            5. Análisis de manos.
+            
+            Recursos sugeridos:
+            - PokerStars School, Upswing Poker, Run It Once.
+            - Libros y videos especializados.`;
         }
+        promptContent += `Por favor, asegúrate de que el plan de estudio sea claro, detallado, fácil de seguir y contenga pasos accionables para que el usuario pueda mejorar continuamente.`;
 
         logger.info('Prompt content:', promptContent);
 
-        const response = await axios.post(
+        const openAIResponse = await axios.post(
             'https://api.openai.com/v1/chat/completions',
-            {
-                model: "gpt-4-0613", // Asegúrate de usar un modelo que soporte function calling
+            {  
+                model: "gpt-4o",
                 messages: [
-                    {
-                        role: 'system',
-                        content: `Eres un asistente que genera planes de estudio personalizados en formato JSON válido.`
-                    },
-                    {
-                        role: 'user',
-                        content: truncateString(promptContent, 1000),
-                    }
+                    { role: 'system', content: contentSystem },
+                    { role: 'user', content: truncateString(promptContent, 1000) }
                 ],
                 functions: [
                     {
@@ -217,16 +317,6 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                         parameters: {
                             type: "object",
                             properties: {
-                                campoEstudio: { type: "string", description: "El campo de estudio." },
-                                subCampoEstudio: { type: "string", description: "El subcampo de estudio." },
-                                nivelExperiencia: { type: "string", description: "Nivel de experiencia en el tema." },
-                                experiencia: { type: "string", description: "Experiencia previa del usuario." },
-                                nivelIntensidad: { type: "string", description: "Nivel de intensidad del plan de estudio." },
-                                diasEstudio: {
-                                    type: "array",
-                                    items: { type: "string" },
-                                    description: "Días disponibles para estudiar."
-                                },
                                 planEstudio: {
                                     type: "array",
                                     items: {
@@ -240,7 +330,9 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                                                     type: "object",
                                                     properties: {
                                                         titulo: { type: "string", description: "Título de la tarea." },
-                                                        contenido: { type: "string", description: "Tiene que ser una explicacion detallada y extensa donde explique que es lo que tiene que estudiar o hacer y donde puede hacerlo(ya sea en plataformas, blogs, videos, etc)."},
+                                                        descripcion: { type: "string", description: "Descripción detallada de la tarea." },
+                                                        contenido: { type: "string", description: "Fuentes de información para realizar la tarea." },
+                                                        tiempo: { type: "number", description: "Tiempo estimado en minutos." },
                                                         estado: { type: "string", enum: ["esperando", "enProceso", "finalizado"], description: "Estado de la tarea." },
                                                         prioridad: { type: "string", enum: ["baja", "media", "alta"], description: "Prioridad de la tarea." }
                                                     }
@@ -263,7 +355,7 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                                     }
                                 }
                             },
-                            required: ["campoEstudio", "nivelIntensidad", "diasEstudio", "planEstudio", "objetivos"]
+                            required: ["campoEstudio", "nivelIntensidad", "diasEstudio", "horasEstudio", "planEstudio", "objetivos"]
                         }
                     }
                 ],
@@ -275,45 +367,75 @@ Adaptación al Estilo de Juego: Ajustar las tácticas según el estilo de los op
                     Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
                     'Content-Type': 'application/json',
                 },
+                timeout: 60000
             }
         );
 
-        logger.info('Response from OpenAI:', response.data);
+        logger.info('Response from OpenAI:', openAIResponse.data);
 
         let responseData;
         try {
-            responseData = response.data.choices[0].message.function_call.arguments;
-            logger.info('Response data:', responseData);
-
-            if (typeof responseData === 'string') {
-                try {
-                    let parsedResponse = JSON.parse(responseData);
-
-                    if (typeof parsedResponse !== 'object' || parsedResponse === null || Array.isArray(parsedResponse)) {
-                        throw new Error('La respuesta no es un objeto plano');
-                    }
-
-                    logger.info('Parsed response:', parsedResponse);
-
-                    await guardarPlanEstudio(uid, parsedResponse);
-
-                    return res.json(parsedResponse);
-                } catch (parseError) {
-                    logger.error('Error al analizar la respuesta de OpenAI:', parseError.message);
-                    return res.status(500).json({ error: 'Error al analizar la respuesta de OpenAI', details: parseError.message });
-                }
+            const functionCall = openAIResponse.data.choices[0].message.function_call;
+            if (functionCall && functionCall.arguments) {
+                responseData = JSON.parse(functionCall.arguments);
+                logger.info('Response data:', responseData);
             } else {
-                throw new Error('La respuesta de OpenAI no es un string JSON válido');
+                throw new Error('La respuesta de OpenAI no contiene una llamada a función válida');
             }
         } catch (parseError) {
             logger.error('Error al analizar la respuesta de OpenAI:', parseError.message);
-            return res.status(500).json({ error: 'Error al analizar la respuesta de OpenAI', details: parseError.message });
+            // Fallback: devolver un objeto con valores predeterminados para evitar que la UI falle
+            responseData = { planEstudio: [], objetivos: [] };
         }
+
+        // Agregar datos adicionales a la respuesta
+        const processedDias = typeof informacionTema.diasEstudio === 'string'
+  ? informacionTema.diasEstudio
+  : Array.isArray(informacionTema.diasEstudio)
+    ? informacionTema.diasEstudio.join(', ')
+    : 'No especificado';
+
+const processedHoras = typeof informacionTema.horasEstudio === 'string'
+  ? informacionTema.horasEstudio
+  : (Array.isArray(informacionTema.diasEstudio)
+      ? informacionTema.diasEstudio.map(dia => `${dia}: ${informacionTema.horasEstudio[dia] || 'No especificado'}`).join(', ')
+      : 'No especificado');
+
+const additionalData = {
+  campo: informacionTema.campo, 
+  nivelIntensidad: informacionTema.nivelIntensidad,
+  diasEstudio: processedDias,
+  horasEstudio: processedHoras,
+  tareasCompletadas: Array.isArray(informacionTema.tareasCompletadas) ? informacionTema.tareasCompletadas.map(t => t.titulo).join(', ') : 'Ninguna',
+  objetivosCompletados: Array.isArray(informacionTema.objetivosCompletados) ? informacionTema.objetivosCompletados.map(o => o.titulo).join(', ') : 'Ninguno',
+};
+
+        if (informacionTema.campo === 'Ajedrez') {
+            additionalData.experienciaAjedrez = informacionTema.experienciaAjedrez;
+            additionalData.elo = informacionTema.elo;
+            additionalData.tiempo = informacionTema.tiempo;
+            additionalData.conocimientosAjedrez = informacionTema.conocimientosAjedrez;
+        } else if (informacionTema.campo === 'Poker Texas Holdem') {
+            additionalData.tipoPoker = informacionTema.tipoPoker;
+            additionalData.limiteMesa = informacionTema.limiteMesa;
+            additionalData.conocimientosPoker = informacionTema.conocimientosPoker;
+        }
+
+        // Combina la respuesta de OpenAI con los datos adicionales
+        const planNuevo = {
+            ...responseData,
+            ...additionalData,
+        };
+
+        await guardarPlanEstudio(uid, planNuevo);
+
+        return res.json(planNuevo);
     } catch (error) {
         logger.error('Error al procesar el plan de estudio:', error.message);
         return res.status(500).json({ error: 'Error al generar el plan de estudio', details: error.message });
     }
 });
+
 
 router.delete('/eliminar-plan/:planId', async (req, res) => {
     const { planId } = req.params;
@@ -464,4 +586,4 @@ router.get('/obtener-plan/:planId', async (req, res) => {
     }
 });
 
-module.exports = router;
+export default router;

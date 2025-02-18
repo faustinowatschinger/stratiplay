@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer base {
-    input, select{
+    input, select, textarea, button{
       @apply text-white bg-[#252525] w-full text-center p-1 rounded-lg;
     }
     section{

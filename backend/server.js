@@ -1,18 +1,28 @@
-const express = require('express');
-const cors = require('cors'); // Importa el middleware cors
+// server.js
+import express from 'express';
+import bodyParser from 'body-parser';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import chatCustomPrompt from './routes/chat.js';
+import paypalWebhook from './routes/paypalWebhook.js';
+import createSubscription from './routes/createSubscription.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
-const admin = require('./firebase'); // Importa la inicialización de Firebase
+const port = process.env.PORT || 5000;
 
-// Configura CORS para permitir solicitudes desde http://localhost:5173
-app.use(cors({
-    origin: 'http://localhost:5173'
-}));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 
-// Resto de tu configuración de servidor
-app.use(express.json());
-app.use('/api/chat', require('./routes/chat'));
+// Otras rutas (por ejemplo, chat)
+app.use('/api/chat', chatCustomPrompt);
+app.use('/api/paypal', paypalWebhook);
+app.use('/api/mercadopago', createSubscription);
+// Archivos estáticos
+app.use(express.static(path.join(__dirname, 'build')));
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`🚀 Servidor en http://0.0.0.0:${port}`);
 });

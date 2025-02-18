@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    .explicacion-h1 {
+        @apply text-3xl font-bold mb-4 text-center;
+    }
+    .explicacion-img {
+        @apply m-auto w-36;
+    }
+    .explicacion-h2 {
+        @apply text-2xl font-bold mb-4 text-center;
+    }
+    .explicacion-h3 {
+        @apply text-xl font-bold;
+    }
+    .explicacion-p {
+        @apply text-lg mt-2; 
+    }
+    .explicacion-div {
+        @apply flex flex-col items-center justify-center w-full mb-5;
+    }
+    .explicacion-section {
+        @apply flex flex-col items-center justify-center bg-[#4D4D4D] rounded-lg p-6 max-w-4xl w-full;
+    }
+    .explicacion-article {
+        @apply flex flex-col items-center justify-center min-h-screen p-0 sm:p-4 md:p-6 lg:p-10 text-white w-full;
+    }
+}
