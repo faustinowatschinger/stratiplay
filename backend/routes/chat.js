@@ -548,11 +548,13 @@ router.post('/actualizar-estado-objetivo', async (req, res) => {
     }
 });
 
+// In backend/routes/chat.js, modify the /obtener-plan/:planId route
 router.get('/obtener-plan/:planId', async (req, res) => {
     const { planId } = req.params;
 
     let uid;
     try {
+        // Verify token and get uid
         const idToken = req.headers.authorization?.split(' ')[1];
         if (!idToken) {
             throw new Error('Token no proporcionado');
@@ -564,25 +566,27 @@ router.get('/obtener-plan/:planId', async (req, res) => {
         if (!uid) {
             throw new Error('El token no contiene un UID');
         }
-    } catch (error) {
-        logger.error('Error al verificar el token:', error.message);
-        return res.status(401).json({ error: 'Autenticación fallida: ' + error.message });
-    }
 
-    try {
+        // Get plan data
         const userRef = db.collection('usuarios').doc(uid);
         const planRef = userRef.collection('planesEstudio').doc(planId);
         const planDoc = await planRef.get();
 
         if (!planDoc.exists) {
-            throw new Error('El plan de estudio no existe');
+            return res.status(404).json({ error: 'Plan de estudio no encontrado' });
         }
 
         const planData = planDoc.data();
         return res.json(planData);
+
     } catch (error) {
-        logger.error('Error al obtener el plan de estudio:', error.message);
-        return res.status(500).json({ error: 'Error al obtener el plan de estudio', details: error.message });
+        logger.error('Error detallado al obtener plan:', error);
+        console.error('Stack trace:', error.stack);
+        return res.status(500).json({ 
+            error: 'Error al obtener el plan de estudio',
+            details: error.message,
+            stack: error.stack
+        });
     }
 });
 
